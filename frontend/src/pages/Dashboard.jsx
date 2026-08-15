@@ -10,25 +10,34 @@ import {
   User,
   Pause,
   Play,
-  RotateCcw
+  RotateCcw,
+  Mic,
+  Square,
+  Sparkles,
+  Check,
+  ChevronDown,
+  ArrowRight,
+  AlertTriangle,
+  Plus
 } from "lucide-react";
 
+// Updated to use soft, complementary UI tones that fit the new aesthetic
 const getToneColor = (tone) => {
   switch (tone) {
     case "sarcastic":
-      return "bg-purple-100 text-purple-700";
+      return "bg-[#F4F0F9] text-[#7E57C2] border-[#E8DEF2]";
     case "joking":
-      return "bg-green-100 text-green-700";
+      return "bg-[#EDF7ED] text-[#388E3C] border-[#C8E6C9]";
     case "angry":
-      return "bg-red-100 text-red-700";
+      return "bg-[#FDEDED] text-[#D32F2F] border-[#FFCDD2]";
     case "confused":
-      return "bg-yellow-100 text-yellow-700";
+      return "bg-[#FFF8E1] text-[#F57C00] border-[#FFECB3]";
     case "stressed":
-      return "bg-orange-100 text-orange-700";
+      return "bg-[#FFF3E0] text-[#E64A19] border-[#FFE0B2]";
     case "serious":
-      return "bg-blue-100 text-blue-700";
+      return "bg-[#E3F2FD] text-[#1976D2] border-[#BBDEFB]";
     default:
-      return "bg-gray-100 text-gray-600";
+      return "bg-[#F5F5F5] text-[#69688D] border-[#E0E0E0]";
   }
 };
 
@@ -61,7 +70,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-function truncateLabel(text, maxWords = 8, maxChars = 56) {
+function truncateLabel(text, maxWords = 6, maxChars = 50) {
   if (!text || typeof text !== "string") return "";
 
   const normalized = text.replace(/\s+/g, " ").trim();
@@ -115,32 +124,29 @@ function isDiagramDense(diagram) {
 }
 
 function buildFallbackDiagram({ simplified, keyPoints }) {
-  const labels = [];
 
-  if (simplified) {
-    labels.push(truncateLabel(simplified, 9, 62));
+  const sourceText = simplified || (Array.isArray(keyPoints) ? keyPoints.join(" ") : "");
+  if (!sourceText) return null;
+
+  const words = sourceText.replace(/\s+/g, " ").trim().split(" ");
+  const chunks = [];
+  const maxWordsPerNode = 6;
+  const maxNodes = 6; 
+
+  for (let i = 0; i < words.length && chunks.length < maxNodes; i += maxWordsPerNode) {
+    let chunk = words.slice(i, i + maxWordsPerNode).join(" ").replace(/"/g, "'");
+    if (chunk) chunks.push(chunk);
   }
 
-  if (Array.isArray(keyPoints)) {
-    keyPoints.forEach((point) => {
-      const compact = truncateLabel(point, 8, 56);
-      if (compact) labels.push(compact);
-    });
-  }
+  if (chunks.length === 0) return null;
 
-  const unique = [...new Set(labels.filter(Boolean))].slice(0, 5);
+  const lines = ["flowchart LR"];
 
-  if (unique.length === 0) {
-    return null;
-  }
-
-  const lines = ["flowchart TD"];
-
-  unique.forEach((label, index) => {
-    lines.push(`N${index}["${label}"]`);
+  chunks.forEach((label, index) => {
+    lines.push(`N${index}["\`${label}\`"]`);
   });
 
-  for (let i = 1; i < unique.length; i += 1) {
+  for (let i = 1; i < chunks.length; i += 1) {
     lines.push(`N${i - 1} --> N${i}`);
   }
 
@@ -151,9 +157,12 @@ const Dashboard = () => {
   const [profileId, setProfileId] = useState(null);
   const [paused, setPaused] = useState(false);
   const [speed, setSpeed] = useState(50);
+  const [selectedModel, setSelectedModel] = useState("default");
 
   const [contextQuery, setContextQuery] = useState("");
   const [loadingContextQuery, setLoadingContextQuery] = useState(false);
+
+  const [attachedFile, setAttachedFile] = useState(null);
 
   const [mermaidDiagram, setMermaidDiagram] = useState(null);
   const [loadingMermaid, setLoadingMermaid] = useState(false);
@@ -177,13 +186,11 @@ const Dashboard = () => {
   const usedHardWordsRef = React.useRef(new Set());
 
   const [textOnly, setTextOnly] = useState(true);
-
   const [allowVisuals, setAllowVisuals] = useState(true);
 
   const hasSpeakers =
     Array.isArray(assistResult?.speakerSegments) &&
     assistResult.speakerSegments.length >= 2;
-
 
   const {
     text: animatedSimplified,
@@ -196,9 +203,7 @@ const Dashboard = () => {
 
   const normalizeHardWords = (hardWords = {}) => {
     const entries = Object.entries(hardWords);
-
     entries.sort((a, b) => b[0].length - a[0].length);
-
     return entries.map(([word, description]) => ({
       word,
       description,
@@ -234,15 +239,15 @@ const Dashboard = () => {
         originalKey &&
         !usedHardWordsRef.current.has(lowerPart)
       ) {
-        
         return (
           <span
             key={i}
-            className="relative group text-indigo-700 font-semibold underline decoration-dotted decoration-indigo-400/50 cursor-help transition-colors hover:text-indigo-800"
+            className="relative group text-[#568FBD] font-semibold underline decoration-dotted decoration-[#568FBD]/50 cursor-help transition-colors hover:text-[#76A7C9]"
           >
             {part}
-            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-gray-900 text-white text-xs px-3 py-2 rounded-xl shadow-2xl z-50 w-56 text-center leading-snug normal-case font-normal backdrop-blur-sm">
+            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-[#1D2633] text-white text-[12.5px] px-3.5 py-2.5 rounded-xl shadow-[0_12px_24px_-8px_rgba(29,38,51,0.3)] z-50 w-60 text-center leading-snug normal-case font-normal animate-slide-up font-[Atkinson_Hyperlegible,sans-serif]">
               {hardWordsMap[originalKey]}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1D2633]"></div>
             </span>
           </span>
         );
@@ -265,6 +270,7 @@ const Dashboard = () => {
           profileId,
           query: contextQuery,
           previousResult: assistResult,
+          model: selectedModel, // Model safely passed to existing backend structure
         }),
       });
 
@@ -541,6 +547,7 @@ const Dashboard = () => {
             audio: base64Audio,
             mimeType: normalizedMimeType,
             userProfile: { onboarding },
+            model: selectedModel, // Passed to backend smoothly
           }),
         });
 
@@ -589,7 +596,8 @@ const Dashboard = () => {
       setLoadingAssist(true);
       const data = await requestAssist({
         profileId,
-        text: transcriptChunk
+        text: transcriptChunk,
+        model: selectedModel // Passed downstream smoothly
       });
 
       setAssistResult({
@@ -606,326 +614,416 @@ const Dashboard = () => {
   };
   
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-violet-50/20">
+    <div className="min-h-screen bg-[#E3E2D9] md:p-4 lg:p-6 flex flex-col font-[Atkinson_Hyperlegible,sans-serif] text-[#1D2633] antialiased">
+      
+      {/* Outer App Container */}
+      <div className="flex-1 w-full max-w-[1300px] mx-auto bg-white flex flex-col relative md:rounded-[2rem] md:shadow-[0_24px_48px_-16px_rgba(29,38,51,0.14)] md:border border-[#1D2633]/10 overflow-hidden transition-all">
+        
+        {/* Header */}
+        <header className="flex items-center justify-between px-5 py-4 sm:px-7 sm:py-5 border-b border-[#1D2633]/5 bg-white z-10 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <img src="/favicon-128.png" alt="Cognivo" className="h-7 w-7 rounded-full object-contain hidden sm:block" />
+            <h1 className="text-[18px] sm:text-[20px] font-extrabold tracking-[0.16em] text-[#1D2633] uppercase font-[Space_Grotesk,sans-serif]">
+              Cognivo
+            </h1>
+          </div>
 
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-white/80 border-b border-indigo-100/50 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent tracking-tight">
-            AuraSync
-          </h1>
+          <div className="flex items-center gap-3 sm:gap-4">
+            
+            {/* Model Selector */}
+            <div className="relative group flex items-center bg-white border border-[#1D2633]/10 rounded-xl px-2.5 py-1.5 sm:px-3 shadow-[0_2px_8px_rgba(29,38,51,0.06)] hover:border-[#76A7C9]/60 hover:shadow-[0_4px_12px_rgba(29,38,51,0.09)] transition-all duration-200">
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="appearance-none bg-transparent outline-none text-[#1D2633] text-[12px] sm:text-[13.5px] font-semibold pr-6 cursor-pointer w-full"
+              >
+                <option value="default">Default Model</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+              </select>
 
-          <div className="flex items-center gap-2">
-            <button className="p-2 rounded-xl hover:bg-indigo-50 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 text-slate-600 hover:text-indigo-600">
-              <HelpCircle size={20} strokeWidth={2} />
-            </button>
-            <button className="p-2 rounded-xl hover:bg-indigo-50 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 text-slate-600 hover:text-indigo-600">
-              <Settings size={20} strokeWidth={2} />
-            </button>
-            <button className="p-2 rounded-xl hover:bg-indigo-50 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 text-slate-600 hover:text-indigo-600">
-              <User size={20} strokeWidth={2} />
-            </button>
+              <ChevronDown
+                size={14}
+                strokeWidth={2.5}
+                className="absolute right-2.5 text-[#69688D] pointer-events-none group-hover:text-[#568FBD] transition-colors"
+              />
+            </div>
+
+            <div className="w-px h-5 bg-[#1D2633]/10 hidden sm:block"></div>
+
             <button
               onClick={resetProfile}
-              className="
-                ml-2
-                px-3 py-1.5
-                rounded-xl
-                bg-gradient-to-r from-rose-500 to-pink-600
-                text-white
-                text-xs sm:text-sm
-                font-medium
-                shadow-md shadow-rose-500/25
-                hover:shadow-lg hover:shadow-rose-500/35
-                active:scale-95
-                transition-all
-                whitespace-nowrap
-              "
+              className="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[12px] sm:text-[13.5px] font-bold text-[#1D2633] bg-[#F5F6F4] border border-[#1D2633]/10 shadow-sm hover:bg-[#EEF1F0] hover:border-[#1D2633]/20 hover:shadow-md active:scale-95 transition-all whitespace-nowrap"
             >
+              <RotateCcw size={14} strokeWidth={2.5} />
               <span className="hidden sm:inline">New Session</span>
-              <span className="sm:hidden">Reset</span>
             </button>
           </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-
-          <section className="lg:col-span-8 space-y-4">
-            {assistResult?.noiseDetected && (
-              <div className="rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 px-4 py-2.5 text-sm text-amber-800 shadow-sm flex items-start gap-2">
-                <span className="text-base">⚠️</span>
-                <span>Background noise was detected. Some sounds were ignored for clarity.</span>
-              </div>
-            )}
-            
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg shadow-indigo-100/50 border border-indigo-100/30 p-5 sm:p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-slate-800">
-                  Live Understanding
-                </h2>
-                {assistResult && (
-                  <div className="h-2 w-2 rounded-full bg-gradient-to-r from-emerald-400 to-green-500 animate-pulse shadow-lg shadow-emerald-500/50"></div>
-                )}
-              </div>
-
+        {/* Main Interface Layout */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          
+          {/* Left Column: AI Content Area */}
+          <main className="flex-1 flex flex-col h-full relative overflow-y-auto custom-scrollbar bg-white">
+            <div className="p-5 sm:p-7 lg:p-10 flex-1">
+              
+              {assistResult?.noiseDetected && (
+                <div className="mb-6 rounded-xl bg-[#FFF8E1] border border-[#FFECB3] px-4 py-3 text-[14px] text-[#F57C00] shadow-sm flex items-start gap-3 animate-slide-up">
+                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                  <span className="font-medium">Background noise was detected. Some sounds were ignored to preserve clarity.</span>
+                </div>
+              )}
+              
               {assistResult ? (
-                <div className="space-y-5">
-                  <div className="bg-gradient-to-br from-indigo-50/50 to-violet-50/30 rounded-xl p-3 border border-indigo-100/50">
-                    <h4 className="font-bold text-[11px] uppercase tracking-widest text-indigo-700 mb-3 flex items-center gap-2">
-                      <div className="h-1 w-8 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full"></div>
+                <div className="space-y-8 pb-20 lg:pb-8">
+                  {/* Simplified Section */}
+                  <div className="animate-slide-up">
+                    <h2 className="text-[14px] font-bold uppercase tracking-[0.18em] text-[#568FBD] mb-4 flex items-center gap-2">
+                      <span className="w-6 h-[2px] bg-[#568FBD]"></span>
                       Simplified
-                    </h4>
-                    <div className="leading-relaxed text-slate-700 text-base space-y-3">
+                    </h2>
+                    
+                    <div className="space-y-4">
                       {hasSpeakers ? (
-                      assistResult.speakerSegments.map((seg, i) => (
-                        <div key={i} className="space-y-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-indigo-700 text-sm">
-                              {seg.speaker}
-                            </span>
-
-                            {seg.tone && seg.tone !== "neutral" && (
-                              <span
-                                className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wide ${getToneColor(seg.tone)}`}
-                              >
-                                {seg.tone}
+                        assistResult.speakerSegments.map((seg, i) => (
+                          <div key={i} className="group flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-[#1D2633] text-[14px] font-[Space_Grotesk,sans-serif]">
+                                {seg.speaker}
                               </span>
-                            )}
+                              {seg.tone && seg.tone !== "neutral" && (
+                                <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-[0.1em] border ${getToneColor(seg.tone)}`}>
+                                  {seg.tone}
+                                </span>
+                              )}
+                            </div>
+                            <div className="pl-3 sm:pl-4 border-l-2 border-[#1D2633]/10 group-hover:border-[#76A7C9]/40 transition-colors">
+                              <p className="text-[15px] sm:text-[16px] text-[#1D2633] leading-[1.65]">
+                                {renderTextWithHighlights(seg.text, simplifiedDone)}
+                              </p>
+                            </div>
                           </div>
-                          <p className="border-l-2 border-indigo-200 pl-2 -ml-2">
-                            {renderTextWithHighlights(seg.text, simplifiedDone)}
-                          </p>
-                        </div>
-                      ))
+                        ))
                       ) : (
-                        <p className="text-slate-700">
-                        <span key={`${speed}-${assistResult?._rawSimplified}`}>
-                          {renderTextWithHighlights(
-                            (paused && !simplifiedDone) || simplifiedDone
-                              ? assistResult._rawSimplified
-                              : animatedSimplified,
-                            true
-                          )}
-                        </span>
+                        <p className="text-[16px] sm:text-[18px] text-[#1D2633] leading-[1.7] max-w-[42rem]">
+                          <span key={`${speed}-${assistResult?._rawSimplified}`}>
+                            {renderTextWithHighlights(
+                              (paused && !simplifiedDone) || simplifiedDone
+                                ? assistResult._rawSimplified
+                                : animatedSimplified,
+                              true
+                            )}
+                          </span>
                         </p>
                       )}
                     </div>
                   </div>
 
+                  {/* Key Points */}
                   {assistResult.keyPoints?.length > 0 && (
-                    <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                      <h4 className="font-bold text-[11px] uppercase tracking-widest text-indigo-700 mb-3 flex items-center gap-2">
-                        <div className="h-1 w-8 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full"></div>
+                    <div className="animate-slide-up" style={{ animationDelay: '100ms' }}>
+                      <h2 className="text-[14px] font-bold uppercase tracking-[0.18em] text-[#568FBD] mb-4 flex items-center gap-2">
+                        <span className="w-6 h-[2px] bg-[#568FBD]"></span>
                         Key Points
-                      </h4>
-                      <div className="grid gap-2">
+                      </h2>
+                      <div className="grid gap-2.5 max-w-[42rem]">
                         {assistResult.keyPoints.map((p, i) => (
-                          <div key={i} className="flex items-start gap-3 bg-gradient-to-r from-indigo-50/80 to-violet-50/60 p-3 rounded-xl border border-indigo-100/40 hover:border-indigo-200/60 transition-colors">
-                            <span className="text-indigo-500 font-bold text-lg leading-none mt-0.5">•</span>
-                            <span className="text-slate-700 text-sm leading-relaxed flex-1">{renderTextWithHighlights(p, simplifiedDone)}</span>
+                          <div key={i} className="flex items-start gap-3 bg-[#FAFAFA] p-3.5 sm:p-4 rounded-xl border border-[#1D2633]/5 hover:border-[#1D2633]/15 transition-colors">
+                            <span className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-[#1D2633]/5 text-[#1D2633] mt-0.5">
+                              <Check size={12} strokeWidth={3} />
+                            </span>
+                            <span className="text-[#1D2633] text-[15px] leading-relaxed">{renderTextWithHighlights(p, simplifiedDone)}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
                   
+                  {/* Steps */}
                   {assistResult.flags?.multi_step && assistResult.steps?.length > 0 && (
-                    <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                      <h4 className="font-bold text-[11px] uppercase tracking-widest text-emerald-700 mb-3 flex items-center gap-2">
-                        <div className="h-1 w-8 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full"></div>
+                    <div className="animate-slide-up" style={{ animationDelay: '150ms' }}>
+                      <h2 className="text-[12px] font-bold uppercase tracking-[0.18em] text-[#76A7C9] mb-4 flex items-center gap-2">
+                        <span className="w-6 h-px bg-[#76A7C9]/50"></span>
                         Steps
-                      </h4>
-                      <ol className="space-y-2">
+                      </h2>
+                      <div className="space-y-2.5 max-w-[42rem]">
                         {assistResult.steps.map((step, i) => (
-                          <li key={i} className="flex items-start gap-3 bg-gradient-to-r from-emerald-50/70 to-teal-50/50 p-3 rounded-xl border border-emerald-100/40">
-                            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-xs font-bold shadow-sm">
+                          <div key={i} className="flex items-start gap-3 bg-[#FAFAFA] p-3.5 sm:p-4 rounded-xl border border-[#1D2633]/5 hover:border-[#1D2633]/15 transition-colors">
+                            <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-[#1D2633] text-white text-[12px] font-bold font-[Space_Grotesk,sans-serif]">
                               {i + 1}
                             </span>
-                            <span className="text-slate-700 text-sm leading-relaxed flex-1">{renderTextWithHighlights(step, simplifiedDone)}</span>
-                          </li>
+                            <span className="text-[#1D2633] text-[15px] leading-relaxed pt-0.5">{renderTextWithHighlights(step, simplifiedDone)}</span>
+                          </div>
                         ))}
-                      </ol>
+                      </div>
                     </div>
                   )}
     
+                  {/* Visual Aid */}
                   {loadingMermaid && (
-                    <div className="flex items-center gap-2 text-xs text-indigo-600 italic px-2">
-                      <div className="h-1 w-1 rounded-full bg-indigo-400 animate-pulse"></div>
-                      Generating visual explanation…
+                    <div className="flex items-center gap-2 text-[13px] text-[#69688D] italic font-medium animate-pulse">
+                      <Sparkles size={14} className="text-[#76A7C9]" />
+                      Generating visual structure…
                     </div>
                   )}
 
                   {mermaidDiagram && (
-                    <div className="mt-4">
+                    <div className="mt-6 p-4 rounded-2xl border border-[#1D2633]/10 bg-[#FAFAFA] max-w-[100%] overflow-x-auto custom-scrollbar shadow-sm animate-slide-up">
                       <MermaidDiagram diagram={mermaidDiagram} />
                     </div>
                   )}
-
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                  <div className={`mb-4 ${loadingAssist ? "animate-pulse" : "animate-bounce"}`}>
-                    <div className="relative">
-                      <HelpCircle size={48} className="opacity-20" strokeWidth={1.5} />
-                      {loadingAssist && (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="w-12 h-12 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
-                        </div>
-                      )}
-                    </div>
+                <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center px-4">
+                  <div className={`w-20 h-20 bg-[#1D2633]/5 rounded-full flex items-center justify-center mb-6 border-2 border-[#1D2633]/10 relative ${loadingAssist ? "" : "animate-float-slow"}`}>
+                    {loadingAssist ? (
+                      <div className="w-10 h-10 border-[3px] border-[#1D2633]/10 border-t-[#1D2633] rounded-full animate-spin" />
+                    ) : (
+                      <Sparkles size={32} className="text-[#1D2633] opacity-60" strokeWidth={1.5} />
+                    )}
                   </div>
-                  <p className="text-sm font-medium">
-                    {loadingAssist ? "Gemini is processing..." : "Ready to listen"}
-                  </p>
-                  <p className="text-xs opacity-60 mt-1">
-                    {loadingAssist ? "Distilling conversation insights" : "Start recording to begin"}
+                  <h2 className="text-[24px] sm:text-[28px] font-semibold text-[#1D2633] font-[Space_Grotesk,sans-serif] mb-2 tracking-tight">
+                    {loadingAssist ? "Distilling insights" : "Ready to listen"}
+                  </h2>
+                  <p className="text-[#69688D] text-[15px] sm:text-[16px] max-w-[280px]">
+                    {loadingAssist ? "Processing the audio conversation based on your preferences." : "Click the button below to start capturing the conversation."}
                   </p>
                 </div>
               )}
             </div>
 
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-md shadow-indigo-100/40 border border-indigo-100/30 p-4">
-              <h4 className="font-bold text-[11px] uppercase tracking-widest text-indigo-700 mb-3 flex items-center gap-2">
-                <div className="h-1 w-6 bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full"></div>
-                Ask AuraSync
-              </h4>
+            {/* Context Query / Chat Bar */}
+            <div className="mt-auto bg-white border-t border-[#1D2633]/5 p-4 sm:p-5 sm:px-7 sticky bottom-0 z-20">
+              <input
+                id="context-file-input"
+                type="file"
+                className="hidden"
+                accept=".pdf,.txt,.doc,.docx,.png,.jpg,.jpeg"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setAttachedFile(file);
+                  }
+                }}
+              />
 
-              <div className="flex gap-2">
+              {attachedFile && (
+                <div className="w-full max-w-[52rem] mx-auto mb-2.5 flex items-center">
+                  <div className="flex items-center gap-2 bg-[#F5F7F8] border border-[#1D2633]/10 rounded-lg px-3 py-2 max-w-full">
+                    <span className="text-[13px] font-medium text-[#1D2633] truncate max-w-[260px]">
+                      {attachedFile.name}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => setAttachedFile(null)}
+                      className="text-[#69688D] hover:text-[#1D2633] transition-colors"
+                      title="Remove file"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              <div className="w-full max-w-[52rem] mx-auto flex gap-2.5">
+
+                <button
+                  type="button"
+                  onClick={() => document.getElementById("context-file-input")?.click()}
+                  className="flex-shrink-0 w-[48px] h-[48px] rounded-xl bg-[#FAFAFA] border-2 border-[#1D2633]/10 text-[#1D2633] flex items-center justify-center hover:border-[#76A7C9] hover:bg-[#F7F9FA] hover:text-[#568FBD] active:scale-95 transition-all"
+                  title="Attach file"
+                >
+                  <Plus size={21} strokeWidth={2.5} />
+                </button>
+
                 <input
                   type="text"
                   value={contextQuery}
                   onChange={(e) => setContextQuery(e.target.value)}
-                  placeholder="Ask for clarification, examples, or simplification…"
-                  className="flex-1 px-4 py-2.5 rounded-xl border-2 border-indigo-100 text-sm focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 transition-all bg-white/50 placeholder:text-slate-400"
+                  placeholder="Ask for clarification, examples, or simpler terms..."
+                  className="flex-1 bg-[#FAFAFA] border-2 border-[#1D2633]/10 rounded-xl px-4 py-3 text-[14.5px] text-[#1D2633] placeholder:text-[#69688D]/50 focus:outline-none focus:border-[#76A7C9] focus:ring-4 focus:ring-[#76A7C9]/20 transition-all"
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleContextQuery();
                   }}
                 />
-
                 <button
                   onClick={handleContextQuery}
-                  disabled={loadingContextQuery}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-medium shadow-md shadow-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/40 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95 transition-all duration-200"
+                  disabled={loadingContextQuery || !assistResult}
+                  className="px-5 sm:px-6 py-3 rounded-xl bg-[#1D2633] text-white font-bold text-[14.5px] shadow-md shadow-[#1D2633]/15 transition-all hover:bg-[#29344a] hover:-translate-y-0.5 disabled:opacity-40 disabled:hover:translate-y-0 disabled:cursor-not-allowed active:scale-[0.98] flex items-center gap-2"
                 >
-                  {loadingContextQuery ? "Thinking…" : "Ask"}
+                  <span className="hidden sm:inline">{loadingContextQuery ? "Thinking..." : "Ask"}</span>
+                  <ArrowRight size={18} className="sm:hidden" />
                 </button>
               </div>
             </div>
+          </main>
 
-            {profileId && (
-              <div className="text-[10px] text-slate-400 uppercase tracking-widest px-2 font-mono">
-                Session: <span className="text-indigo-400">{profileId}</span>
+          {/* Right Column: Controls Sidebar */}
+          <aside className="w-full lg:w-[320px] xl:w-[340px] bg-[#FAFAFA] border-t lg:border-t-0 lg:border-l border-[#1D2633]/5 flex flex-col overflow-y-auto custom-scrollbar shrink-0">
+            <div className="p-5 sm:p-7 flex flex-col gap-8 flex-1">
+              
+              {/* Primary Action Button */}
+              <div className="hidden lg:block">
+                <button
+                  onClick={recording ? stopRecording : startRecording}
+                  className={`group flex items-center justify-center gap-2.5 w-full py-[17px] rounded-[1rem] font-bold text-[16px] transition-all duration-300 ${
+                    recording
+                      ? "bg-red-50 text-red-600 border-2 border-red-200 hover:bg-red-100 shadow-sm"
+                      : "bg-[#1D2633] text-white shadow-lg shadow-[#1D2633]/20 hover:bg-[#29344a] hover:shadow-xl hover:-translate-y-0.5 active:scale-[0.98] active:translate-y-0"
+                  }`}
+                >
+                  {recording ? (
+                    <>
+                      <Square size={18} fill="currentColor" className="animate-pulse" />
+                      <span>Stop Listening</span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic size={18} />
+                      <span>Start Listening</span>
+                    </>
+                  )}
+                </button>
               </div>
-            )}
-          </section>
 
-          <aside className="lg:col-span-4 space-y-4">
-
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg shadow-indigo-100/50 border border-indigo-100/30 p-5">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-slate-800 text-base">Reading Pace</h3>
-                <span className="text-[10px] font-bold px-3 py-1 bg-gradient-to-r from-indigo-100 to-violet-100 text-indigo-700 rounded-full uppercase tracking-wide">
-                  {speed < 33 ? "Slow" : speed < 66 ? "Standard" : "Fast"}
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex justify-between text-[10px] text-slate-500 uppercase tracking-wider font-medium">
-                  <span>Slow</span>
-                  <span>Fast</span>
+              {/* Reading Pace Control */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-[13px] font-bold uppercase tracking-[0.15em] text-[#69688D]">Reading Pace</h3>
+                  <span className="text-[11px] font-bold px-2.5 py-1 bg-[#1D2633]/5 text-[#1D2633] rounded-md uppercase tracking-wider">
+                    {speed < 33 ? "Slow" : speed < 66 ? "Standard" : "Fast"}
+                  </span>
                 </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={speed}
-                  onChange={(e) => setSpeed(Number(e.target.value))}
-                  className="w-full h-2 bg-gradient-to-r from-indigo-100 to-violet-100 rounded-full appearance-none cursor-pointer accent-indigo-600 hover:accent-indigo-700 transition-all"
-                  style={{
-                    background: `linear-gradient(to right, rgb(99 102 241) 0%, rgb(99 102 241) ${speed}%, rgb(224 231 255) ${speed}%, rgb(224 231 255) 100%)`
-                  }}
-                />
+                <div className="space-y-3">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={speed}
+                    onChange={(e) => setSpeed(Number(e.target.value))}
+                    className="w-full h-1.5 bg-[#1D2633]/10 rounded-full appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#76A7C9]/40"
+                    style={{
+                      background: `linear-gradient(to right, #1D2633 0%, #1D2633 ${speed}%, rgba(29,38,51,0.1) ${speed}%, rgba(29,38,51,0.1) 100%)`
+                    }}
+                  />
+                  <div className="flex justify-between text-[11px] text-[#69688D] font-semibold">
+                    <span>Slower</span>
+                    <span>Faster</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setPaused(!paused)}
+                  className={`w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-[14px] transition-all duration-300 border-2 active:scale-[0.98] ${
+                    paused 
+                      ? "border-[#1D2633] bg-[#1D2633]/5 text-[#1D2633] shadow-sm" 
+                      : "border-[#1D2633]/10 bg-white text-[#69688D] hover:border-[#1D2633]/30 hover:bg-[#1D2633]/[0.02] hover:text-[#1D2633]"
+                  }`}
+                >
+                  {paused ? <Play size={16} fill="currentColor" /> : <Pause size={16} fill="currentColor" />}
+                  {paused ? "Resume Animation" : "Pause Animation"}
+                </button>
               </div>
 
-              <button
-                onClick={() => setPaused(!paused)}
-                className={`w-full mt-4 flex items-center justify-center gap-2 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 shadow-sm ${
-                  paused 
-                    ? "bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40" 
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                } hover:scale-105 active:scale-95`}
-              >
-                {paused ? <Play size={18} strokeWidth={2.5} /> : <Pause size={18} strokeWidth={2.5} />}
-                {paused ? "Resume" : "Pause"}
-              </button>
-            </div>
+              {/* Preferences */}
+              <div className="space-y-4">
+                <h3 className="text-[13px] font-bold uppercase tracking-[0.15em] text-[#69688D]">Preferences</h3>
+                <div className="space-y-2">
+                  <label className="group flex items-center justify-between p-3.5 rounded-xl border-2 border-[#1D2633]/10 bg-white hover:border-[#1D2633]/30 hover:bg-[#1D2633]/[0.02] cursor-pointer transition-all">
+                    <span className="text-[14px] font-medium text-[#1D2633] transition-colors">Visual aids</span>
+                    <div className={`flex items-center justify-center w-5 h-5 rounded-md border-2 transition-all ${
+                      allowVisuals ? "bg-[#1D2633] border-[#1D2633]" : "border-[#1D2633]/20"
+                    }`}>
+                      <Check size={12} className={`text-white stroke-[4] transition-opacity ${allowVisuals ? "opacity-100" : "opacity-0"}`} />
+                    </div>
+                    <input type="checkbox" checked={allowVisuals} onChange={(e) => setAllowVisuals(e.target.checked)} className="hidden" />
+                  </label>
 
-            <div className="hidden lg:block bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg shadow-indigo-100/50 border border-indigo-100/30 p-5">
-              <h3 className="font-bold text-slate-800 mb-4 text-base">Audio Control</h3>
-              <button
-                onClick={recording ? stopRecording : startRecording}
-                className={`w-full py-3 rounded-xl font-bold text-sm transition-all duration-200 shadow-md ${
-                  recording
-                    ? "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-500/30 hover:shadow-lg hover:shadow-red-500/40 animate-pulse"
-                    : "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-indigo-500/30 hover:shadow-lg hover:shadow-indigo-500/40"
-                } hover:scale-105 active:scale-95`}
-              >
-                <span className="flex items-center justify-center gap-2">
-                  {recording && <span className="h-2 w-2 rounded-full bg-white animate-pulse"></span>}
-                  {recording ? "Stop Listening" : "Start Listening"}
-                </span>
-              </button>
-            </div>
-
-            <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-lg shadow-indigo-100/50 border border-indigo-100/30 p-5">
-              <h3 className="font-bold text-slate-800 mb-4 text-base">Preferences</h3>
-
-              <div className="space-y-3">
-                <label className="flex items-center gap-3 text-sm text-slate-700 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={allowVisuals}
-                    onChange={(e) => setAllowVisuals(e.target.checked)}
-                    className="w-5 h-5 rounded-md border-2 border-indigo-300 text-indigo-600 focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition-all cursor-pointer"
-                  />
-                  <span className="group-hover:text-indigo-700 transition-colors font-medium">Visual aids</span>
-                </label>
-
-                <label className="flex items-center gap-3 text-sm text-slate-700 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={textOnly}
-                    onChange={(e) => setTextOnly(e.target.checked)}
-                    className="w-5 h-5 rounded-md border-2 border-indigo-300 text-indigo-600 focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition-all cursor-pointer"
-                  />
-                  <span className="group-hover:text-indigo-700 transition-colors font-medium">Text-only mode</span>
-                </label>
+                  <label className="group flex items-center justify-between p-3.5 rounded-xl border-2 border-[#1D2633]/10 bg-white hover:border-[#1D2633]/30 hover:bg-[#1D2633]/[0.02] cursor-pointer transition-all">
+                    <span className="text-[14px] font-medium text-[#1D2633] transition-colors">Text-only mode</span>
+                    <div className={`flex items-center justify-center w-5 h-5 rounded-md border-2 transition-all ${
+                      textOnly ? "bg-[#1D2633] border-[#1D2633]" : "border-[#1D2633]/20"
+                    }`}>
+                      <Check size={12} className={`text-white stroke-[4] transition-opacity ${textOnly ? "opacity-100" : "opacity-0"}`} />
+                    </div>
+                    <input type="checkbox" checked={textOnly} onChange={(e) => setTextOnly(e.target.checked)} className="hidden" />
+                  </label>
+                </div>
               </div>
-            </div>
 
+            </div>
           </aside>
         </div>
-      </main>
+      </div>
 
-      {/* Mobile bottom recording bar */}
-      <div className="sticky bottom-0 bg-white/90 backdrop-blur-xl border-t border-indigo-100/50 p-3 lg:hidden shadow-lg z-40">
+      {/* Mobile/Narrow Width Sticky Recording Button */}
+      <div className="lg:hidden sticky bottom-0 bg-[#E3E2D9] pt-3 pb-safe z-50">
         <button
           onClick={recording ? stopRecording : startRecording}
-          className={`w-full py-3 rounded-xl font-bold text-sm transition-all duration-200 shadow-lg ${
+          className={`group flex items-center justify-center gap-2.5 w-full py-[17px] rounded-[1rem] font-bold text-[16px] transition-all duration-300 shadow-lg ${
             recording
-              ? "bg-gradient-to-r from-red-500 to-rose-600 text-white shadow-red-500/30 animate-pulse"
-              : "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-indigo-500/30"
-          } active:scale-95`}
+              ? "bg-red-50 text-red-600 border-2 border-red-200 hover:bg-red-100 shadow-sm"
+              : "bg-[#1D2633] text-white shadow-[#1D2633]/20 active:scale-[0.98]"
+          }`}
         >
-          <span className="flex items-center justify-center gap-2">
-            {recording && (
-              <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-            )}
-            {recording ? "Stop Listening" : "Start Listening"}
-          </span>
+          {recording ? (
+            <>
+              <Square size={18} fill="currentColor" className="animate-pulse" />
+              <span>Stop Listening</span>
+            </>
+          ) : (
+            <>
+              <Mic size={18} />
+              <span>Start Listening</span>
+            </>
+          )}
         </button>
       </div>
+
+      {/* Styles mapping exactly to Boarding & HomePage definitions */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #D0D4DB; border-radius: 10px; }
+        
+        @keyframes slideUpFade {
+          0% { opacity: 0; transform: translateY(12px) scale(0.99); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-slide-up {
+          animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes floatSlow {
+          0%, 100% { transform: translate(0, 0); }
+          50% { transform: translate(0, -8px); }
+        }
+        .animate-float-slow {
+          animation: floatSlow 6s ease-in-out infinite;
+        }
+
+        /* Ensure input ranges look sharp across browsers */
+        input[type=range]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          height: 16px;
+          width: 16px;
+          border-radius: 50%;
+          background: #1D2633;
+          cursor: pointer;
+          margin-top: -5px;
+          box-shadow: 0 2px 4px rgba(29,38,51,0.2);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+          width: 100%;
+          height: 6px;
+          cursor: pointer;
+          border-radius: 9999px;
+        }
+
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+      `}} />
     </div>
   );
 };

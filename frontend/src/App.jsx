@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Route, Routes, Navigate } from "react-router-dom";
 
 import HomePage from "./pages/HomePage";
@@ -11,6 +11,15 @@ import {
 } from "./routes/RouteGuards";
 
 const App = () => {
+
+  // NEW: Check for saved font when the app loads and apply it to the entire body
+  useEffect(() => {
+    const savedFont = localStorage.getItem("user_font");
+    if (savedFont) {
+      document.body.style.fontFamily = `"${savedFont}", sans-serif`;
+    }
+  }, []);
+
   return (
     <Routes>
       {/* Home */}

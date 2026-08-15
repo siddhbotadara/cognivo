@@ -6,12 +6,21 @@ mermaid.initialize({
   startOnLoad: false,
   theme: "base",
   themeVariables: {
-    primaryColor: "#e0e7ff",
-    edgeLabelBackground: "#ffffff",
-    tertiaryColor: "#f8fafc",
+    primaryColor: "#FAFAFA",
+    primaryTextColor: "#1D2633",
+    primaryBorderColor: "#76A7C9",
+    lineColor: "#1D2633",
+    secondaryColor: "#E3F2FD",
+    tertiaryColor: "#FAFAFA",
+    fontSize: "18px",
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
   },
-  securityLevel: "loose",
-  flowchart: { useMaxWidth: true, htmlLabels: true, curve: "basis" },
+  flowchart: {
+    useMaxWidth: true,
+    htmlLabels: true,
+    curve: "basis",
+    defaultRenderer: "dagre-wrapper"
+  }
 });
 
 const MermaidDiagram = ({ diagram }) => {
@@ -51,7 +60,8 @@ const MermaidDiagram = ({ diagram }) => {
     <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl overflow-x-auto">
       <div 
         ref={renderContainerRef} 
-        className="flex justify-center items-center min-h-[100px]"
+        // Changed from justify-center to justify-start to ensure smooth left-to-right scrolling
+        className="flex justify-start items-center min-h-[100px] min-w-max"
       />
     </div>
   );
