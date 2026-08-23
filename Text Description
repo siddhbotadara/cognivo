@@ -1,9 +1,0 @@
-Gemini Integration Description
-
-AuraSync uses Google Gemini 3 as the core intelligence that makes the platform adaptive rather than static. Instead of applying fixed accessibility settings, Gemini 3 continuously reasons over real time inputs to understand how each user is processing audio at any moment.
-
-Gemini 3 analyzes live speech content alongside behavioral signals such as listening speed, pauses, rewinds, and requests for simplification. By combining these signals, it determines when a user is struggling, when they are improving, and how much support is appropriate. Based on this reasoning, Gemini 3 dynamically adjusts explanation depth, clarity, pacing, and presentation format. It can switch between audio, text, and visual explanations to match the user’s current needs while gradually reducing assistance as comprehension improves.
-
-Gemini 3’s multimodal reasoning also enables AuraSync to understand complex listening environments. It can detect tone, identify multiple speakers, distinguish roles such as teachers and students, and adapt explanations accordingly. This allows the system to function effectively in classrooms, meetings, and digital learning spaces.
-
-For accurate real time transcription, AuraSync uses Gemini 2.5 due to its stability and low latency. Visual explanations are generated using Nano Banana when additional reinforcement is needed. Together, these Gemini capabilities enable AuraSync to support users in the moment while guiding them toward confident, independent understanding.

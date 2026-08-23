@@ -1,16 +1,39 @@
-# 🚀 Project Setup Guide - Aurasync
+# 🧠 Cognivo
 
-This repository contains both the **frontend** and **backend** for the project. Follow the steps below to run the entire application locally.
+**Cognivo** is a real-time listening and comprehension assistant designed especially for people with **Auditory Processing Disorder (APD)** and others who struggle to process spoken information in real time.
+
+It captures live audio — from lectures, meetings, videos, or conversations — transcribes it, and transforms it into a form that's easier to follow: **simplified explanations, visual diagrams, narrated audio with word-by-word highlighting, and quick comprehension checks**, tailored to how each person processes information.
+
+Cognivo is available as both a **web app and Chrome extension**, powered by a shared **Fastify + MongoDB + Gemini API** backend.
+
+For people with APD, the challenge isn't necessarily hearing the words — it's **processing and making sense of them**. They may miss key terms, lose the thread of a sentence, struggle to follow multi-step explanations, or hear information without fully absorbing its meaning.
+
+Cognivo addresses this by going beyond transcription. Its onboarding flow identifies **how the user struggles with spoken information** and adapts explanations, pacing, and presentation accordingly. Instead of giving everyone the same generic summary, Cognivo transforms live speech into multiple complementary formats so users can **listen, read, visualize, and check their understanding** in real time.
+
+
+---
+
+## ✨ What it does
+
+- **Live audio transcription** — streams microphone/tab audio to Gemini's Live API over a WebSocket and transcribes it in real time, with automatic reconnect and backoff if the connection drops.
+- **Adaptive AI explanations** — takes a transcript chunk and your onboarding profile (comprehension style, struggle points, learning preference) and returns a simplified explanation, not a generic summary.
+- **Follow-up context Q&A** — ask a question about anything already explained and get a grounded answer, with optional web search and file attachment support.
+- **Auto-generated visual diagrams** — a lightweight "should this be a diagram?" classifier decides whether a flowchart or comparison graph would help, then generates a clean, constrained Mermaid.js diagram (short nodes, no dangling phrases, max 6 nodes) so it's actually accessible, not just visual clutter.
+- **Comprehension quizzes** — auto-generated multiple-choice quizzes based on what was just explained, to check retention in the moment.
+- **Text-to-speech playback** — narrates explanations with tone-aware delivery (serious, playful, urgent, etc.), multi-speaker voice support, and **word-level timing sync** for karaoke-style read-along highlighting.
+- **Tiered, fair-use AI quota system** — every AI feature (core explanations, diagrams, live audio, quiz) draws from its own daily quota across multiple model tiers (Ultra → Pro → Plus → Lite), automatically falling back to a lighter model instead of hard-failing when a tier is exhausted.
+- **Accessibility-first UI** — adjustable font (including Atkinson Hyperlegible / OpenDyslexic), font size, and color mode, driven by a personalized onboarding profile stored per user.
+- **Chrome extension** — use Cognivo directly on any webpage without switching tabs. See [`extension/README.md`](./extension/README.md) for setup.
 
 ---
 
 ## 📦 Prerequisites
 
-Make sure you have the following installed:
-
-- **Node.js** (v18.20.8 and V20.20.0)
+- **Node.js** v18.20.8 or v20.20.0
 - **npm** (comes with Node.js)
 - **Git**
+- A **Gemini API key** ([Google AI Studio](https://aistudio.google.com/))
+- A **MongoDB URI** (local or shared dev instance — ask a maintainer)
 
 ---
 
@@ -18,11 +41,24 @@ Make sure you have the following installed:
 
 ```text
 root
-├── backend
-├── docs
-├── extension
-├── frontend
+├── backend         # Fastify API — routes, controllers, Gemini agents/services, quota engine
+├── frontend        # React + Vite + Tailwind web app
+├── extension       # Chrome extension (Manifest V3) — see extension/README.md
+├── docs            # Additional documentation
 └── README.md
+```
+
+**Backend layout (high level):**
+
+```text
+backend
+├── config/           # geminiTiers.js, ttsConfig.js — model tiers, quotas, TTS voice/language config, MongoDB
+├── models/           # UserProfile.js (Mongoose schema — onboarding + UI preferences)
+├── agents/           # mermaid.agent.js, visual.agent.js — Gemini prompt logic for diagrams
+├── services/         # gemini.service.js, geminiAudio.service.js, liveAudio.service.js, tts.service.js
+├── controllers/      # Route handlers (assist, audio, mermaid, onboarding, quota, tts, websocket, health)
+├── routes/           # Fastify route registration per feature
+├── utils/            # quotaManager.js — shared tiered quota/rate-limit engine
 ```
 
 ---
@@ -31,7 +67,7 @@ root
 
 1. Start the **backend** first.
 2. Then start the **frontend**.
-3. Frontend communicates with backend at `http://localhost:3000`.
+3. Frontend talks to the backend at `http://localhost:3000` by default.
 
 ---
 
@@ -41,53 +77,47 @@ root
 
 ```bash
 cd backend
-
 ```
 
-### 2️⃣ Install backend dependencies
+### 2️⃣ Install dependencies
 
 ```bash
 npm install
 npm run first
 ```
 
-*Note: This command installs all required backend libraries.*
-
-### 3️⃣ Setup environment variables
-
-Create a `.env` file using the example:
+### 3️⃣ Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in the required values in `.env`:
+Fill in the required values:
 
 ```env
 PORT=3000
----------------------Ask In Messages-------------------
-# Api endpoints
-ONBOARDING_API=
 
-# Ask the maintainer for the shared dev MongoDB URI
+# Ask the maintainer for these
 MONGODB_URL=
-
-# Gemini API key (use your own or the shared one)
-GEMINI_API_KEY=
+GEMINI_FINAL_KEY=
 ```
 
-> 🔐 **Note:** `.env` files are not committed to GitHub. Ask the project maintainer for required secrets.
+> `GEMINI_FINAL_KEY` is the single Gemini API key currently used across all AI features (core explanations, diagrams, live audio, quiz, TTS). Per-feature key overrides are supported in `config/geminiTiers.js` if you need to split usage/billing later.
 
-### 4️⃣ Start the backend server
+> 🔐 `.env` files are never committed. Ask a maintainer for shared dev secrets.
+
+### 4️⃣ Start the backend
 
 ```bash
 npm run dev
 ```
 
-If successful, you should see logs similar to:
-`DB Connected`
+Expected output:
 
-`Server listening on port 3000`
+```
+DB Connected
+Server listening on port 3000
+```
 
 **Backend runs at:** `http://localhost:3000`
 
@@ -101,34 +131,24 @@ If successful, you should see logs similar to:
 cd ../frontend
 ```
 
-### 2️⃣ Install frontend dependencies
+### 2️⃣ Install dependencies
 
 ```bash
 npm install
 npm run first
 ```
 
-*This command installs all required frontend libraries (React, Tailwind, lucide-react, etc.).*
-
-### 3️⃣ Setup environment variables
-
-Create a `.env` file using the example:
+### 3️⃣ Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in the required values in `.env`:
-
 ```env
----------------------Ask In Messages-------------------
-# Api endpoints
-VITE_API_BASE_URL = 
+VITE_API_BASE_URL=http://localhost:3000
 ```
 
-> 🔐 **Note:** `.env` files are not committed to GitHub. Ask the project maintainer for required secrets.
-
-### 4️⃣ Start the frontend development server
+### 4️⃣ Start the frontend
 
 ```bash
 npm run dev
@@ -138,89 +158,69 @@ npm run dev
 
 ---
 
-## 🧩 Chrome Extension – Local Setup (Testing)
+## 🧩 Chrome Extension
 
-Follow these steps to install and test the AuraSync Chrome extension locally:
+Cognivo also ships as a Chrome extension so you can use it on any page without a separate tab. Setup, permissions, and usage instructions live in [`extension/README.md`](./extension/README.md) — it does **not** require the Chrome Web Store; you load it locally as an unpacked extension.
 
-### 1️⃣ Clone the latest repository
-
-```bash
-git clone <this repo url>
-```
-
-Make sure you are on the **latest version of `main`**.
+The extension requires the backend to be running locally (or pointed at a deployed instance) to function.
 
 ---
 
-### 2️⃣ Run the backend (required)
+## 🔌 API Overview
 
-The extension depends on the backend API.
-
-👉 Please follow the **backend setup instructions already provided in this repo** and run it locally before testing the extension.
-
----
-
-### 3️⃣ Load the Chrome extension
-
-1. Open Chrome and go to: `chrome://extensions`
-2. Enable **Developer mode** (top-right)
-3. Click **Load unpacked**
-4. Select the **`extension/` folder** from this project
-5. The extension will appear — **pin it** from the Chrome toolbar
-
----
-
-### 4️⃣ Test the extension
-
-* Open any supported page
-* Click the pinned AuraSync extension
-* Complete onboarding if prompted
-* Start using the app 🎉
-
----
-
-### ℹ️ Notes
-
-* You **do not need to run the frontend separately** for extension testing
-* If you pull new changes later, reload the extension from `chrome://extensions`
-* Backend **must be running** for the extension to function correctly
-
----
-
-## 🧪 Common Issues
-
-❓ **404 Error on onboarding API**
-
-* Ensure `.env` contains: `ONBOARDING_API`
-* Restart the backend after editing `.env`
-
-❓ **MongoDB connection issues**
-
-* Ensure `MONGODB_URL` is set correctly.
-* Ask the maintainer for the shared development database URI.
-
----
-
-## 🧠 Notes for Collaborators
-
-* **Do NOT commit .env files.**
-* **Write Secrets in `.env` file NOT IN `.env.example.`**
-* Always use `.env.example` as a reference.
-* You **do NOT** need to install React or Fastify globally; all dependencies are handled via npm scripts.
+| Route | Method | Purpose |
+|---|---|---|
+| `/assist` | POST | Simplify a transcript chunk based on the user's profile |
+| `/assist/context` | POST | Follow-up Q&A on a previous explanation |
+| `/assist/quiz` | POST | Generate a comprehension quiz |
+| `/audio/process` | POST | Native audio understanding → transcript → explanation, in one call |
+| `/mermaid` | POST | Decide if a visual would help, then generate a Mermaid diagram |
+| `/tts/synthesize` | POST | Generate narrated audio with word-timing data |
+| `/tts/quota/:profileId` | GET | Remaining TTS quota per model tier |
+| `/tts/options` | GET | Available TTS models + supported languages |
+| `/onboarding` | POST | Create a user profile |
+| `/onboarding/:profileId` | GET / PUT | Fetch or update a profile |
+| `/quota/:profileId` | GET | Remaining AI quota per feature/tier |
+| `/ws/live-audio` | WS | Live microphone/tab audio → streamed transcript |
+| `/health` | GET | Service health check |
 
 ---
 
 ## ✅ Tech Stack
 
-* **Frontend:** React + Vite + Tailwind CSS
-* **Backend:** Fastify
-* **Database:** MongoDB
-* **AI:** Gemini API
+- **Frontend:** React + Vite + Tailwind CSS
+- **Backend:** Fastify (Node.js)
+- **Database:** MongoDB + Mongoose
+- **Realtime:** WebSockets (client ↔ backend, and backend ↔ Gemini Live API)
+- **AI:** Google Gemini — text generation, native audio understanding, live bidirectional audio, and TTS
+- **Extension:** Chrome Manifest V3
+
+---
+
+## 🧪 Common Issues
+
+**404 on onboarding API**
+- Confirm your backend is running and `VITE_API_BASE_URL` in the frontend `.env` matches it.
+- Restart the backend after editing `.env`.
+
+**MongoDB connection issues**
+- Confirm `MONGODB_URL` is set correctly.
+- Ask a maintainer for the shared dev database URI if you don't have your own.
+
+**Gemini quota errors**
+- Each feature (core / diagram / live / quiz) has its own daily quota across four model tiers. If you're hitting limits constantly in dev, check `config/geminiTiers.js` and adjust `dailyLimit` values for local testing.
+
+---
+
+## 🧠 Notes for Collaborators
+
+- **Do NOT commit `.env` files.**
+- **Write secrets in `.env`, never in `.env.example`.**
+- Always use `.env.example` as a reference for required variables.
+- You do **not** need to install React or Fastify globally — all dependencies are managed via npm scripts.
 
 ---
 
 ## 🎯 Ready to Go
 
-Once both servers are running, the project should be fully functional. If anything breaks, double-check your Node.js version and `.env` values.
-
-**Happy hacking! 🚀**
+Once the backend and frontend are both running, the app is fully functional at `http://localhost:5173`. If something breaks, double-check your Node version and `.env` values first.
