@@ -41,6 +41,14 @@ const MermaidDiagram = ({ diagram }) => {
         .then(({ svg }) => {
         if (!cancelled && renderContainerRef.current) {
             renderContainerRef.current.innerHTML = svg;
+            const svgEl = renderContainerRef.current.querySelector("svg");
+            if (svgEl) {
+              svgEl.removeAttribute("width");
+              svgEl.removeAttribute("height");
+              svgEl.style.width = "100%";
+              svgEl.style.height = "auto";
+              svgEl.style.maxWidth = "100%";
+            }
         }
         })
         .catch((err) => {
@@ -57,11 +65,10 @@ const MermaidDiagram = ({ diagram }) => {
     }, [diagram]);
 
   return (
-    <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl overflow-x-auto">
+    <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl w-full max-w-full lg:max-w-[300px] lg:mx-auto">
       <div 
         ref={renderContainerRef} 
-        // Changed from justify-center to justify-start to ensure smooth left-to-right scrolling
-        className="flex justify-start items-center min-h-[100px] min-w-max"
+        className="flex justify-center items-start min-h-[100px] w-full max-w-full"
       />
     </div>
   );

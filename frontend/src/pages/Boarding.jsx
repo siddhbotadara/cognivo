@@ -114,11 +114,11 @@ const Boarding = () => {
   return (
     <div className="fixed inset-0 bg-[#E3E2D9] flex items-center justify-center p-4 sm:p-6 antialiased text-[#1D2633]">
 
-      <div className="relative w-full max-w-lg bg-white rounded-[1.75rem] sm:rounded-[2rem] lg:rounded-[2.25rem] shadow-[0_24px_48px_-16px_rgba(29,38,51,0.14)] border border-[#1D2633]/10 flex flex-col max-h-[90vh] transition-all duration-500 hover:shadow-[0_32px_64px_-16px_rgba(29,38,51,0.18)]">
+      <div className="relative w-full max-w-lg bg-white rounded-[2rem] overflow-hidden shadow-[0_24px_48px_-16px_rgba(29,38,51,0.14)] border border-[#1D2633]/10 flex flex-col max-h-[90vh] transition-all duration-500 hover:shadow-[0_32px_64px_-16px_rgba(29,38,51,0.18)]">
         
         {/* Progress Strip */}
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-[#1D2633]/5 flex rounded-t-[1.75rem] sm:rounded-t-[2rem] lg:rounded-t-[2.25rem] overflow-hidden">
-          <div 
+        <div className="absolute top-0 left-0 right-0 w-full h-1.5 bg-[#1D2633]/5 flex">
+          <div
             className="h-full bg-[#1D2633] transition-all duration-700 ease-in-out"
             style={{ width: `${(step / 6) * 100}%` }}
           />

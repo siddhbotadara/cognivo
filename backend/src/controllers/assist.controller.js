@@ -1,9 +1,9 @@
 import UserProfile from "../models/UserProfile.js";
-import { processWithGemini, processContextQuery} from "../services/gemini.service.js";
+import { processWithGemini, processContextQuery, generateQuiz } from "../services/gemini.service.js";
 
 export async function assistUser(request, reply) {
   try {
-    const { profileId, text } = request.body;
+    const { profileId, text, userId, requestedTier, outputLanguage } = request.body;
 
     if (!profileId || !text) {
       return reply.code(400).send({
@@ -21,7 +21,12 @@ export async function assistUser(request, reply) {
 
     const result = await processWithGemini({
       text,
-      userProfile
+      userProfile,
+      // Dashboard.jsx sends userId === profileId, but fall back to
+      // profileId anyway in case a future caller only sends one of them.
+      userId: userId || profileId,
+      requestedTier,
+      outputLanguage
     });
 
     return reply.send(result);
@@ -35,7 +40,16 @@ export async function assistUser(request, reply) {
 
 export async function assistUserContext(request, reply) {
   try {
-    const { query, previousResult } = request.body;
+    const {
+      query,
+      previousResult,
+      profileId,
+      userId,
+      requestedTier,
+      attachedFile,
+      useSearch,
+      outputLanguage
+    } = request.body;
 
     if (!query || !previousResult) {
       return reply.code(400).send({
@@ -45,7 +59,12 @@ export async function assistUserContext(request, reply) {
 
     const result = await processContextQuery({
       query,
-      previousResult
+      previousResult,
+      userId: userId || profileId,
+      requestedTier,
+      attachedFile,
+      useSearch,
+      outputLanguage
     });
 
     return reply.send(result);
@@ -53,6 +72,32 @@ export async function assistUserContext(request, reply) {
     request.log.error(err);
     return reply.code(500).send({
       error: "Failed to process context request"
+    });
+  }
+}
+
+export async function assistUserQuiz(request, reply) {
+  try {
+    const { simplified, keyPoints, profileId, userId, outputLanguage } = request.body;
+
+    if (!simplified) {
+      return reply.code(400).send({
+        error: "simplified is required to build a quiz"
+      });
+    }
+
+    const quiz = await generateQuiz({
+      simplified,
+      keyPoints,
+      userId: userId || profileId,
+      outputLanguage
+    });
+
+    return reply.send(quiz);
+  } catch (err) {
+    request.log.error(err);
+    return reply.code(500).send({
+      error: "Failed to generate quiz"
     });
   }
 }

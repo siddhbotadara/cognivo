@@ -38,3 +38,44 @@ export const createOnboardingProfile = async (request, reply) => {
     });
   }
 };
+
+
+export const getOnboardingProfile = async (request, reply) => {
+  try {
+    const { profileId } = request.params;
+    const profile = await UserProfile.findOne({ profileId });
+    
+    if (!profile) {
+      return reply.code(404).send({ success: false, message: "Profile not found" });
+    }
+    
+    reply.code(200).send({ success: true, profile });
+  } catch (error) {
+    console.error("❌ Fetch profile error:", error);
+    reply.code(500).send({ success: false, message: error.message });
+  }
+};
+
+// NEW: Update existing profile data
+export const updateOnboardingProfile = async (request, reply) => {
+  try {
+    const { profileId } = request.params;
+    const updateData = request.body; 
+
+    // Update the profile and return the new document
+    const profile = await UserProfile.findOneAndUpdate(
+      { profileId },
+      { $set: updateData },
+      { new: true }
+    );
+
+    if (!profile) {
+      return reply.code(404).send({ success: false, message: "Profile not found" });
+    }
+    
+    reply.code(200).send({ success: true, profile });
+  } catch (error) {
+    console.error("❌ Update profile error:", error);
+    reply.code(500).send({ success: false, message: error.message });
+  }
+};

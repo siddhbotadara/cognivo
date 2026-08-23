@@ -1,22 +1,27 @@
 import { GoogleGenAI } from "@google/genai";
+import { quotaManager } from "../utils/quotaManager.js";
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_FINAL_KEY
-});
-
-export async function generateMermaidDiagram({ simplified, keyPoints, type = "FLOWCHART" }) {
+export async function generateMermaidDiagram({
+  simplified,
+  keyPoints,
+  type = "FLOWCHART",
+  userId,
+  requestedTier = "lite",
+}) {
+  const { model: resolvedModel, apiKey } = quotaManager.selectModel(userId, "diagram", requestedTier);
+  const ai = new GoogleGenAI({ apiKey });
 
   const diagramType =
   type === "GRAPH"
-    ? "graph LR"
-    : "flowchart LR";
+    ? "graph TD"
+    : "flowchart TD";
 
   const prompt = `
 You are an accessibility AI generating VISUAL SCAFFOLDING.
 Task: Generate a Mermaid.js ${diagramType} diagram.
 
 RULES:
-1. Max 6 nodes arranged horizontally left-to-right (LR).
+1. Max 6 nodes arranged vertically top-to-bottom (TD).
 2. STRICT LIMIT: Each node text MUST be 1 to 6 words maximum.
 3. NO CLIFFHANGERS: Nodes must contain complete, logical phrases. Do NOT end nodes with connecting words (e.g., "by", "the", "and", "to", "might").
 4. CONTINUOUS FLOW: If a thought is too long for 6 words, put the continuation in the next connected node (e.g., Node 1: "Speaker tested microphone" --> Node 2: "To ensure clear audio").
@@ -27,7 +32,7 @@ Key Points: ${keyPoints.join("\n")}
 `;
 
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: resolvedModel,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
   });
 

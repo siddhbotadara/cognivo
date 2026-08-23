@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, ArrowDown, Check } from "lucide-react";
+import { ArrowRight, ArrowDown, Check, Play, X } from "lucide-react";
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const [isVideoOpen, setIsVideoOpen] = useState(false);
 
   // Small helper so each staggered element just needs a delay in ms.
   const reveal = (animation, delayMs, extra = {}) => ({
@@ -14,7 +15,7 @@ const HomePage = () => {
 
   return (
     <div className="fixed inset-0 bg-[#E3E2D9] flex items-center justify-center p-4 sm:p-6 md:p-8 text-[#1D2633] font-[Atkinson_Hyperlegible,sans-serif]">
-      <div className="w-full max-w-6xl md:min-h-[34rem] lg:min-h-[37rem] max-h-[95vh] overflow-y-auto rounded-[1.75rem] sm:rounded-[2rem] lg:rounded-[2.25rem] bg-white border border-[#1D2633]/10 shadow-[0_24px_48px_-16px_rgba(29,38,51,0.14)] flex flex-col md:flex-row">
+      <div className="cognivo-scroll w-full max-w-6xl md:min-h-[34rem] lg:min-h-[37rem] max-h-[95vh] overflow-y-auto rounded-[1.75rem] sm:rounded-[2rem] lg:rounded-[2.25rem] bg-white border border-[#1D2633]/10 shadow-[0_24px_48px_-16px_rgba(29,38,51,0.14)] flex flex-col md:flex-row">
 
         {/* Left: brand + signature demo — hidden below md so narrow / extension widths get the full-focus single column */}
         <div className="hidden md:flex md:w-[46%] lg:w-[49%] bg-[#1D2633]/95 p-9 lg:p-10 flex-col">
@@ -23,9 +24,9 @@ const HomePage = () => {
             style={reveal("cognivoFadeUp 0.6s ease-out", 0)}
           >
             <img
-              src="/favicon-128.png"
+              src="/rounded.png"
               alt="Cognivo"
-              className="h-9 w-9 lg:h-10 lg:w-10 rounded-full object-contain"
+              className="h-9 w-9 lg:h-11 lg:w-11 rounded-full object-contain"
             />
 
             <span className="text-[20px] lg:text-[26px] xl:text-[28px] font-extrabold tracking-[0.18em] text-white uppercase">
@@ -145,12 +146,12 @@ const HomePage = () => {
 
           {/* Mobile / Chrome extension demo */}
           <div
-            className="md:hidden mb-8 rounded-2xl bg-[#1D2633]/95 p-5 sm:p-6"
+            className="cognivo-mobile-demo md:hidden mb-8 rounded-2xl bg-[#1D2633]/95 p-5 sm:p-6"
             style={reveal("cognivoFadeUp 0.6s ease-out", 100)}
           >
-            <div className="flex items-center gap-2.5 mb-5">
+            <div className="cognivo-demo-header flex items-center gap-2.5 mb-5">
               <img
-                src="/favicon-128.png"
+                src="/rounded.png"
                 alt="Cognivo"
                 className="h-7 w-7 rounded-full object-contain"
               />
@@ -167,39 +168,33 @@ const HomePage = () => {
               </p>
 
               <div className="mt-3 flex flex-wrap gap-1.5">
-                <span className="px-2.5 py-1.5 rounded-md bg-white/10 text-[#E3E2D9] text-[11.5px]">
+                <span className="px-2 py-1.5 rounded-md bg-white/10 text-[#E3E2D9] text-[10.5px]">
                   The
                 </span>
-
-                <span className="px-2.5 py-1.5 rounded-md bg-white/5 text-[#E3E2D9]/25 text-[11.5px]">
+                <span className="px-2 py-1.5 rounded-md bg-white/5 text-[#E3E2D9]/25 text-[10.5px]">
                   meet—
                 </span>
-
-                <span className="px-2.5 py-1.5 rounded-md bg-white/10 text-[#E3E2D9] text-[11.5px]">
+                <span className="px-2 py-1.5 rounded-md bg-white/10 text-[#E3E2D9] text-[10.5px]">
                   moved
                 </span>
-
-                <span className="px-2.5 py-1.5 rounded-md bg-white/5 text-[#E3E2D9]/20 text-[11.5px]">
+                <span className="px-2 py-1.5 rounded-md bg-white/5 text-[#E3E2D9]/20 text-[10.5px]">
                   ···
                 </span>
-
-                <span className="px-2.5 py-1.5 rounded-md bg-white/10 text-[#E3E2D9] text-[11.5px]">
+                <span className="px-2 py-1.5 rounded-md bg-white/10 text-[#E3E2D9] text-[10.5px]">
                   Friday
                 </span>
               </div>
             </div>
 
             {/* Divider */}
-            <div className="my-5 flex items-center gap-2">
+            <div className="cognivo-divider my-5 flex items-center gap-2">
               <div className="h-px flex-1 bg-white/10" />
-
               <div className="flex items-center gap-1 text-[#76A7C9]">
                 <ArrowDown size={12} strokeWidth={2.5} />
                 <span className="text-[9px] font-bold uppercase tracking-widest">
                   Cognivo
                 </span>
               </div>
-
               <div className="h-px flex-1 bg-white/10" />
             </div>
 
@@ -208,13 +203,11 @@ const HomePage = () => {
               <p className="text-[10px] font-bold uppercase tracking-widest text-[#76A7C9]/80">
                 You read
               </p>
-
-              <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#E3E2D9] px-3 py-3">
+              <div className=" cognivo-read-card mt-3 flex items-center gap-2 rounded-xl bg-[#E3E2D9] px-3 py-3">
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#568FBD] text-white">
                   <Check size={11} strokeWidth={3} />
                 </span>
-
-                <span className="text-[12px] sm:text-[13px] font-semibold text-[#1D2633] leading-snug">
+                <span className="cognivo-read-text text-[12px] sm:text-[13px] font-semibold text-[#1D2633] leading-snug whitespace-nowrap">
                   The meeting moved to Friday.
                 </span>
               </div>
@@ -249,8 +242,9 @@ const HomePage = () => {
               Cognivo clarifies speech for people with Auditory Processing Disorder.
             </p>
 
+            {/* Action Buttons */}
             <div
-              className="mt-12 sm:mt-14 lg:mt-16 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4"
+              className="cognivo-action-buttons mt-6 sm:mt-14 lg:mt-16 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4"
               style={reveal("cognivoFadeUp 0.6s ease-out", 500)}
             >
               <button
@@ -260,13 +254,101 @@ const HomePage = () => {
                 Personalize
                 <ArrowRight size={18} className="text-[#76A7C9] transition-transform group-hover:translate-x-1" />
               </button>
+
+              <button
+                onClick={() => setIsVideoOpen(true)}
+                className="group inline-flex items-center justify-center gap-2.5 rounded-xl bg-transparent border-2 border-[#1D2633]/15 px-8 py-[15px] text-[16px] lg:text-[17px] font-bold text-[#1D2633] transition-all hover:bg-[#1D2633]/5 active:scale-[0.98] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#568FBD]"
+              >
+                <Play size={18} fill="currentColor" className="text-[#568FBD] transition-transform group-hover:scale-110" />
+                Watch Demo
+              </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* Video Modal Overlay */}
+      {isVideoOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#1D2633]/80 backdrop-blur-sm p-4 sm:p-6 transition-opacity">
+          <div 
+            className="relative w-full max-w-5xl bg-black rounded-2xl sm:rounded-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] overflow-hidden aspect-video animate-in fade-in zoom-in-95 duration-300"
+          >
+            {/* Close Button */}
+            <button
+              onClick={() => setIsVideoOpen(false)}
+              className="absolute top-4 right-4 z-10 flex items-center justify-center w-10 h-10 bg-black/50 hover:bg-black text-white rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#568FBD]"
+            >
+              <X size={24} />
+            </button>
+            
+            {/* YouTube Embed */}
+            <iframe
+              className="w-full h-full"
+              // REPLACE 'YOUR_YOUTUBE_VIDEO_ID' WITH YOUR ACTUAL VIDEO ID 
+              src="https://www.youtube.com/embed/YOUR_YOUTUBE_VIDEO_ID?autoplay=1"
+              title="Cognivo Product Demo"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            ></iframe>
+          </div>
+        </div>
+      )}
+
       <style dangerouslySetInnerHTML={{ __html: `
         @import url('https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Space+Grotesk:wght@500;600&display=swap');
+
+        html,
+        body,
+        #root {
+          height: 100%;
+        }
+
+        .cognivo-scroll {
+          overflow-y: auto;
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+
+        .cognivo-scroll::-webkit-scrollbar {
+          display: none;
+        }
+
+        @media (max-width: 350px), (max-width: 400px) and (max-height: 620px) {
+
+          .cognivo-mobile-demo {
+            padding: 0.9rem;
+            margin-bottom: 1rem;
+          }
+
+          .cognivo-mobile-demo .cognivo-demo-header {
+            margin-bottom: 0.7rem;
+          }
+
+          .cognivo-mobile-demo .cognivo-divider {
+            margin-top: 0.7rem;
+            margin-bottom: 0.7rem;
+          }
+
+          /* Make the read sentence fit on one line */
+          .cognivo-mobile-demo .cognivo-read-card {
+            padding-left: 0.55rem;
+            padding-right: 0.55rem;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+            gap: 0.4rem;
+          }
+
+          .cognivo-mobile-demo .cognivo-read-text {
+            font-size: 7px !important;
+            letter-spacing: -0.01em;
+          }
+
+          /* Reduce the vertical gap before the buttons */
+          .cognivo-action-buttons {
+            margin-top: 1.5rem !important;
+          }
+        }
 
         @keyframes cognivoFadeUp {
           from { opacity: 0; transform: translateY(10px); }
@@ -293,6 +375,8 @@ const HomePage = () => {
           * { animation: none !important; transition: none !important; }
         }
       `}} />
+
+      
     </div>
   );
 };

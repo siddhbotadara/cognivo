@@ -8,12 +8,24 @@ import audioRoutes from "./routes/audio.routes.js";
 import cors from '@fastify/cors' 
 import mermaidRoutes from "./routes/mermaid.routes.js";
 import healthRoutes from "./routes/health.route.js";
+import fastifyWebsocket from "@fastify/websocket";
+import websocketRoutes from "./routes/websocket.routes.js";
+import quotaRoutes from "./routes/quota.route.js";
+import ttsRoutes from "./routes/tts.routes.js";
+
 
 const app = Fastify({
   logger:true,
   ignoreTrailingSlash:true,
   bodyLimit: 20 * 1024 * 1024
 });
+
+app.register(fastifyWebsocket, {
+  options: { maxPayload: 1048576 }
+});
+
+// Then register your routes, just like you do with assistRoutes
+app.register(websocketRoutes, { prefix: process.env.ROUTE_API});
 
 await app.register(cors, {
   origin: (origin, cb) => {
@@ -30,7 +42,9 @@ await app.register(cors, {
     }
 
     // Allow local dev
-    if (origin === "http://localhost:5173" || origin?.endsWith('.vercel.app')) {
+
+    //|| origin?.endsWith('.vercel.app')
+    if (origin === "http://localhost:5173") {
       return cb(null, true);
     }
 
@@ -50,5 +64,7 @@ app.register(onboardingRoutes, {prefix: process.env.ROUTE_API});
 app.register(assistRoutes, { prefix: process.env.ROUTE_API});
 app.register(mermaidRoutes, { prefix: process.env.ROUTE_API});
 app.register(healthRoutes, {prefix: process.env.ROUTE_API});
+app.register(quotaRoutes, {prefix: process.env.ROUTE_API});
+app.register(ttsRoutes, { prefix: process.env.ROUTE_API });
 
 export default app;

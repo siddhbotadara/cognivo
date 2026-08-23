@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "AuraSync IDE",
-  "version": "1.0.0",
+  "name": "Cognivo",
+  "version": "2.1.0",
 
   "icons": {
-    "16": "app/favicon-16.png",
-    "32": "app/favicon-32.png",
-    "48": "app/favicon-48.png",
-    "128": "app/favicon-128.png"
+    "16": "app/rounded.png",
+    "32": "app/rounded.png",
+    "48": "app/rounded.png",
+    "128": "app/rounded.png"
   },
 
   "background": {
@@ -19,7 +19,7 @@
   },
 
   "action": {
-    "default_title": "AuraSync"
+    "default_title": "Cognivo"
   },
 
   "permissions": [
