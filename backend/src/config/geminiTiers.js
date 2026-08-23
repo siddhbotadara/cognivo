@@ -42,10 +42,10 @@ export const QUIZ_MODEL = "gemini-3.1-flash-lite";
 
 export function getFeatureKey(feature) {
   const envVarByFeature = {
-    core: process.env.GEMINI_SIDDH_API_1,
-    diagram: process.env.GEMINI_SIDDH_API_1,
-    live: process.env.GEMINI_SIDDH_API_1,
-    quiz: process.env.GEMINI_SIDDH_API_1,
+    core: process.env.GEMINI_FINAL_KEY,
+    diagram: process.env.GEMINI_FINAL_KEY,
+    live: process.env.GEMINI_FINAL_KEY,
+    quiz: process.env.GEMINI_FINAL_KEY,
   };
   return envVarByFeature[feature];
 }
@@ -53,10 +53,10 @@ export function getFeatureKey(feature) {
 // Kept for anything still importing FEATURE_KEYS directly — same caveat
 // applies to this one (eager), so prefer getFeatureKey() in new code.
 export const FEATURE_KEYS = {
-  core: process.env.GEMINI_SIDDH_API_1,
-  diagram: process.env.GEMINI_SIDDH_API_1,
-  live: process.env.GEMINI_SIDDH_API_1,
-  quiz: process.env.GEMINI_SIDDH_API_1,
+  core: process.env.GEMINI_FINAL_KEY,
+  diagram: process.env.GEMINI_FINAL_KEY,
+  live: process.env.GEMINI_FINAL_KEY,
+  quiz: process.env.GEMINI_FINAL_KEY,
 };
 
 export function resolveTier(requestedTierId) {

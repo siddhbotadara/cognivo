@@ -2,7 +2,7 @@ import WebSocket from "ws";
 
 export class GeminiLiveService {
   constructor(onTranscript) { // Remove options/targetLanguageCode
-    this.apiKey = process.env.GEMINI_SIDDH_API_1;
+    this.apiKey = process.env.GEMINI_FINAL_KEY;
     this.onTranscript = onTranscript;
     this.ws = null;
     this.isConnected = false;

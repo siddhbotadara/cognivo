@@ -1,27 +1,25 @@
 {
   "manifest_version": 3,
   "name": "Cognivo",
+  "short_name": "Cognivo",
   "version": "2.1.0",
-
+  "description": "AI-powered learning assistance that turns live speech into clearer, more understandable information.",
+  "homepage_url": "https://your-cognivo-website.com",
   "icons": {
     "16": "app/rounded.png",
     "32": "app/rounded.png",
     "48": "app/rounded.png",
     "128": "app/rounded.png"
   },
-
   "background": {
     "service_worker": "background.js"
   },
-
   "side_panel": {
     "default_path": "app/index.html"
   },
-
   "action": {
     "default_title": "Cognivo"
   },
-
   "permissions": [
     "storage",
     "sidePanel",
@@ -29,8 +27,7 @@
     "tabs",
     "tabCapture"
   ],
-
   "host_permissions": [
-    "http://localhost:3000/*"
+    "https://cognivo-backend-6tk6.onrender.com/*"
   ]
 }

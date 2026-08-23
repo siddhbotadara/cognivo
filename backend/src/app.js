@@ -32,18 +32,11 @@ await app.register(cors, {
     if (!origin) return cb(null, true);
 
     // Allow Vercel frontend
-    if (origin.includes("vercel.app")) {
-      return cb(null, true);
-    }
-
-    // Allow Render
-    if (origin.includes("onrender.com")) {
+    if (origin === "https://cognivoflow.vercel.app") {
       return cb(null, true);
     }
 
     // Allow local dev
-
-    //|| origin?.endsWith('.vercel.app')
     if (origin === "http://localhost:5173") {
       return cb(null, true);
     }

@@ -4,7 +4,7 @@ dotenv.config();
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_SIDDH_API_1,
+  apiKey: process.env.GEMINI_FINAL_KEY,
 });
 
 export async function processNativeAudio({ base64Audio, mimeType }) {

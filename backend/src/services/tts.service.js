@@ -142,7 +142,7 @@ export async function synthesizeModule({
     throw err;
   }
 
-  const apiKey = process.env.GEMINI_TTS_API_KEY || process.env.GEMINI_SIDDH_API_1;
+  const apiKey = process.env.GEMINI_FINAL_KEY;
   const ai = new GoogleGenAI({ apiKey });
 
   const { promptText, mode, speakers } = buildPrompt(segments, languageLabel);
