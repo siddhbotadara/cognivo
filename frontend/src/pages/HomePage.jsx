@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, ArrowDown, Check, Play, X } from "lucide-react";
+import { ArrowRight, ArrowDown, Check, Play, X, Chrome, ExternalLink } from "lucide-react";
 
 const HomePage = () => {
   const navigate = useNavigate();
@@ -263,6 +263,39 @@ const HomePage = () => {
                 Watch Demo
               </button>
             </div>
+
+            {/* GitHub Extension Link */}
+            <div
+              className="hidden md:flex absolute top-full left-0 right-0 mt-6 lg:mt-8 justify-center"
+              style={reveal("cognivoFadeUp 0.6s ease-out", 600)}
+            >
+              <a
+                href="https://github.com/siddhbotadara/cognivo/tree/main/extension"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group inline-flex items-center gap-3.5 rounded-2xl bg-white border border-[#1D2633]/10 px-5 py-3 shadow-[0_4px_12px_-4px_rgba(29,38,51,0.06)] transition-all hover:border-[#1D2633]/20 hover:shadow-[0_8px_16px_-6px_rgba(29,38,51,0.1)] hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#568FBD]"
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#E3E2D9]/80 text-[#1D2633] transition-colors group-hover:bg-[#E3E2D9]">
+                  <Chrome size={18} />
+                </div>
+
+                <div className="flex flex-col text-left">
+                  <span className="text-[14px] font-bold text-[#1D2633] leading-tight">
+                    Browser Extension
+                  </span>
+
+                  <span className="text-[12px] font-medium text-[#69688D] leading-tight mt-0.5">
+                    Download from GitHub
+                  </span>
+                </div>
+
+                <ExternalLink
+                  size={16}
+                  className="ml-2 text-[#568FBD] transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                />
+              </a>
+            </div>
+
           </div>
         </div>
       </div>

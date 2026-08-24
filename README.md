@@ -1,6 +1,6 @@
 # 🧠 Cognivo
 
-**Cognivo** is a real-time listening and comprehension assistant designed especially for people with **Auditory Processing Disorder (APD)** and others who struggle to process spoken information in real time.
+**AI-powered Cognivo** is a real-time listening and comprehension assistant designed especially for people with **Auditory Processing Disorder (APD)** and others who struggle to process spoken information in real time.
 
 It captures live audio — from lectures, meetings, videos, or conversations — transcribes it, and transforms it into a form that's easier to follow: **simplified explanations, visual diagrams, narrated audio with word-by-word highlighting, and quick comprehension checks**, tailored to how each person processes information.
 
