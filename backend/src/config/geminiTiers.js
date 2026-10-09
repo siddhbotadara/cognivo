@@ -31,7 +31,7 @@ export const TIERS = [
 
 export const TIER_ORDER = TIERS.map((t) => t.id);
 export const TIER_BY_ID = Object.fromEntries(TIERS.map((t) => [t.id, t]));
-export const DEFAULT_TIER = "pro";
+export const DEFAULT_TIER = "plus";
 
 // Model used for the post-explanation comprehension quiz. Deliberately
 // separate from the TIERS list above — quiz generation isn't one of the

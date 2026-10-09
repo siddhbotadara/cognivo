@@ -268,7 +268,7 @@ const PremiumLoader = ({ text }) => (
 
 const Dashboard = () => {
   const [profileId, setProfileId] = useState(null);
-  const [selectedModel, setSelectedModel] = useState("pro");
+  const [selectedModel, setSelectedModel] = useState("plus");
   const [quotaStats, setQuotaStats] = useState(null);
   const [lastModelInfo, setLastModelInfo] = useState(null);
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
