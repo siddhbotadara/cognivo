@@ -1,8 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { TTS_MODELS, DEFAULT_TTS_MODEL, TONE_STYLE } from "../config/ttsConfig.js";
 
-// ── Self-contained daily quota tracker (independent of quotaManager.js —
-// see note in the write-up about why). Same DAY_MS pattern you already use.
+// ── Daily quota tracker ──────────────────────────────────────────────
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ttsUsage = new Map(); // userId -> Map<modelId, timestamps[]>
 
@@ -25,6 +24,15 @@ function consumeTts(userId, modelKey) {
   return { allowed: true, remaining: tier.dailyLimit - timestamps.length };
 }
 
+// Give the quota back if generation failed (user shouldn't pay for errors)
+function refundTts(userId, modelKey) {
+  const byModel = ttsUsage.get(userId);
+  if (!byModel) return;
+  const timestamps = byModel.get(modelKey) || [];
+  timestamps.pop();
+  byModel.set(modelKey, timestamps);
+}
+
 export function getTtsStats(userId) {
   return Object.values(TTS_MODELS).map((tier) => {
     const used = cleanOld(ttsUsage.get(userId)?.get(tier.id) || []).length;
@@ -38,31 +46,59 @@ export function getTtsStats(userId) {
   });
 }
 
-// ── Build the style-directed prompt from your speakerSegments shape
-// (same { speaker, text, tone } shape gemini.service.js already returns).
-function buildPrompt(segments, languageLabel) {
+// ── Prompt builders ──────────────────────────────────────────────────
+// "structured": profile / scene / director's notes / TRANSCRIPT marker.
+//   Only text after the TRANSCRIPT marker is meant to be spoken.
+// "inline": classic "Say <style>: text" format (fallback for models that
+//   behave better with it). Switch per model via `promptStyle` in ttsConfig.
+function buildPrompt(segments, languageLabel, promptStyle = "structured") {
   const clean = (segments || []).filter((s) => s?.text?.trim());
   const speakers = [...new Set(clean.map((s) => s.speaker || "Narrator"))];
-  const languageLine =
-    languageLabel && languageLabel !== "Auto" ? `Speak in ${languageLabel}. ` : "";
+  const hasLanguage = languageLabel && languageLabel !== "Auto";
 
-  // Single speaker / plain narration
+  // ---------- Single speaker ----------
   if (speakers.length <= 1) {
     const tone = clean[0]?.tone || "neutral";
     const style = TONE_STYLE[tone] || TONE_STYLE.neutral;
     const text = clean.map((s) => s.text).join(" ");
+
+    if (promptStyle === "inline") {
+      return {
+        mode: "single",
+        promptText: `Say ${style}${hasLanguage ? `, in ${languageLabel}` : ""}: ${text}`,
+        speakers: ["Narrator"],
+      };
+    }
+
     return {
       mode: "single",
-      promptText: `${languageLine}Read the following aloud like a calm, encouraging teacher, speaking ${style}, with natural breathing pauses between sentences:\n\n${text}`,
+      promptText: [
+        "# AUDIO PROFILE",
+        "Narrator, a calm, encouraging teacher.",
+        "",
+        "## THE SCENE",
+        "A quiet one-to-one tutoring session.",
+        "",
+        "### DIRECTOR'S NOTES",
+        `Style: ${style}.`,
+        "Pacing: natural, with breathing pauses between sentences.",
+        hasLanguage ? `Language: ${languageLabel}.` : null,
+        "",
+        "#### TRANSCRIPT",
+        text,
+      ]
+        .filter((l) => l !== null)
+        .join("\n"),
       speakers: ["Narrator"],
     };
   }
 
-  // Multi-speaker — Gemini TTS only supports 2 voice slots, so cap at the
-  // two most frequent speakers and fold the rest into the second voice
-  // (same idea as the "Team Member" merge you already do in gemini.service.js).
+  // ---------- Multi speaker (Gemini supports 2 voice slots) ----------
   const counts = {};
-  clean.forEach((s) => (counts[s.speaker || "Narrator"] = (counts[s.speaker || "Narrator"] || 0) + 1));
+  clean.forEach((s) => {
+    const n = s.speaker || "Narrator";
+    counts[n] = (counts[n] || 0) + 1;
+  });
   const [primary, secondary] = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
   const remap = (name) => (name === primary ? primary : secondary || primary);
 
@@ -72,21 +108,86 @@ function buildPrompt(segments, languageLabel) {
     if (!toneFor[who]) toneFor[who] = s.tone || "neutral";
   });
 
-  const directive = Object.entries(toneFor)
-    .map(([speaker, tone]) => `make ${speaker} sound ${TONE_STYLE[tone] || TONE_STYLE.neutral}`)
-    .join(", and ");
+  const transcript = clean
+    .map((s) => `${remap(s.speaker || "Narrator")}: ${s.text}`)
+    .join("\n");
 
-  const transcript = clean.map((s) => `${remap(s.speaker || "Narrator")}: ${s.text}`).join("\n");
+  if (promptStyle === "inline") {
+    const directive = Object.entries(toneFor)
+      .map(([sp, tone]) => `make ${sp} sound ${TONE_STYLE[tone] || TONE_STYLE.neutral}`)
+      .join(", and ");
+    return {
+      mode: "multi",
+      promptText: `${directive}${hasLanguage ? `, speaking ${languageLabel}` : ""}:\n\n${transcript}`,
+      speakers: [primary, secondary].filter(Boolean),
+    };
+  }
+
+  const profile = Object.keys(toneFor)
+    .map((sp) => `${sp}: a natural conversational speaker.`)
+    .join("\n");
+  const notes = Object.entries(toneFor)
+    .map(([sp, tone]) => `${sp}: ${TONE_STYLE[tone] || TONE_STYLE.neutral}.`)
+    .join("\n");
 
   return {
     mode: "multi",
-    promptText: `${languageLine}${directive}:\n\n${transcript}`,
+    promptText: [
+      "# AUDIO PROFILE",
+      profile,
+      "",
+      "## THE SCENE",
+      "A relaxed, natural conversation.",
+      "",
+      "### DIRECTOR'S NOTES",
+      notes,
+      "Pacing: natural turn-taking with brief pauses between speakers.",
+      hasLanguage ? `Language: ${languageLabel}.` : null,
+      "",
+      "#### TRANSCRIPT",
+      transcript,
+    ]
+      .filter((l) => l !== null)
+      .join("\n"),
     speakers: [primary, secondary].filter(Boolean),
   };
 }
 
-// ── Gemini TTS returns raw 16-bit PCM @ 24kHz mono — browsers can't play
-// that without a WAV/RIFF header, so wrap it before sending to the frontend.
+// ── PCM cleanup: removes the "bang" at the end ──────────────────────
+// - align to 2-byte samples (odd length = half sample = loud click)
+// - trim a few ms of tail (some preview models emit a glitch frame)
+// - fade in/out so audio never starts/ends on a non-zero sample
+// - append silence so the player doesn't cut off hard
+const SAMPLE_RATE = 24000;
+const TRIM_TAIL_MS = 40;
+const FADE_IN_MS = 5;
+const FADE_OUT_MS = 30;
+const PAD_END_MS = 250;
+
+function cleanPcm(pcm) {
+  let len = pcm.length - (pcm.length % 2);
+  len -= Math.round((SAMPLE_RATE * TRIM_TAIL_MS) / 1000) * 2;
+  if (len <= 0) return { pcm, speechSec: pcm.length / 2 / SAMPLE_RATE };
+
+  const out = Buffer.from(pcm.subarray(0, len)); // copy, don't mutate original
+  const total = len / 2;
+
+  const fadeInN = Math.min(total, Math.round((SAMPLE_RATE * FADE_IN_MS) / 1000));
+  for (let i = 0; i < fadeInN; i++) {
+    out.writeInt16LE(Math.round(out.readInt16LE(i * 2) * (i / fadeInN)), i * 2);
+  }
+
+  const fadeOutN = Math.min(total, Math.round((SAMPLE_RATE * FADE_OUT_MS) / 1000));
+  for (let i = 0; i < fadeOutN; i++) {
+    const idx = total - fadeOutN + i;
+    const gain = (fadeOutN - 1 - i) / fadeOutN;
+    out.writeInt16LE(Math.round(out.readInt16LE(idx * 2) * gain), idx * 2);
+  }
+
+  const pad = Buffer.alloc(Math.round((SAMPLE_RATE * PAD_END_MS) / 1000) * 2);
+  return { pcm: Buffer.concat([out, pad]), speechSec: total / SAMPLE_RATE };
+}
+
 function pcmToWav(pcmBuffer, sampleRate = 24000, channels = 1, bitDepth = 16) {
   const byteRate = sampleRate * channels * (bitDepth / 8);
   const blockAlign = channels * (bitDepth / 8);
@@ -107,26 +208,22 @@ function pcmToWav(pcmBuffer, sampleRate = 24000, channels = 1, bitDepth = 16) {
   return Buffer.concat([header, pcmBuffer]);
 }
 
-// ── Estimated per-word timing for the karaoke-style highlight. Gemini TTS
-// does not return word/phoneme timestamps, so this spreads time across the
-// real decoded audio duration, weighted by word length + punctuation pauses.
-// It's an estimate, not forced alignment — same approach most read-aloud
-// tools use when the TTS vendor doesn't expose timing marks.
+// ── Estimated word timings (speech portion only, excludes padding) ──
 function estimateWordTimings(fullText, durationSec) {
   const words = fullText.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  const weights = words.map((w) => w.length + (/[,.;:!?]$/.test(w) ? 3 : 0) + 1);
-  const total = weights.reduce((a, b) => a + b, 0);
+  const weightOf = (w) => w.length + (/[,.;:!?]$/.test(w) ? 3 : 0) + 1;
+  const total = words.reduce((a, w) => a + weightOf(w), 0);
   let t = 0;
   return words.map((word) => {
-    const w = word.length + (/[,.;:!?]$/.test(word) ? 3 : 0) + 1;
-    const dur = (w / total) * durationSec;
+    const dur = (weightOf(word) / total) * durationSec;
     const start = t;
     t += dur;
     return { word, start: +start.toFixed(3), end: +t.toFixed(3) };
   });
 }
 
+// ── Main ─────────────────────────────────────────────────────────────
 export async function synthesizeModule({
   userId,
   segments,
@@ -135,57 +232,73 @@ export async function synthesizeModule({
   ttsModel = DEFAULT_TTS_MODEL,
 }) {
   const tier = TTS_MODELS[ttsModel] || TTS_MODELS[DEFAULT_TTS_MODEL];
-  const quota = consumeTts(userId || "anonymous", tier.id);
+  const uid = userId || "anonymous";
+
+  const quota = consumeTts(uid, tier.id);
   if (!quota.allowed) {
-    const err = new Error(`Daily limit reached for ${tier.label} (10/day). Try the other model or again tomorrow.`);
+    const err = new Error(
+      `Daily limit reached for ${tier.label} (${tier.dailyLimit}/day). Try another model or come back tomorrow.`
+    );
     err.code = "TTS_QUOTA_EXCEEDED";
     throw err;
   }
 
-  const apiKey = process.env.GEMINI_FINAL_KEY;
-  const ai = new GoogleGenAI({ apiKey });
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_FINAL_KEY });
 
-  const { promptText, mode, speakers } = buildPrompt(segments, languageLabel);
+    const { promptText, mode, speakers } = buildPrompt(
+      segments,
+      languageLabel,
+      tier.promptStyle || "structured"
+    );
 
-  const speechConfig =
-    mode === "multi"
-      ? {
-          ...(languageCode !== "auto" ? { languageCode } : {}),
-          multiSpeakerVoiceConfig: {
-            speakerVoiceConfigs: [
-              { speaker: speakers[0], voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } },
-              { speaker: speakers[1] || speakers[0], voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } },
-            ],
-          },
-        }
-      : {
-          ...(languageCode !== "auto" ? { languageCode } : {}),
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } },
-        };
+    const speechConfig =
+      mode === "multi"
+        ? {
+            ...(languageCode !== "auto" ? { languageCode } : {}),
+            multiSpeakerVoiceConfig: {
+              speakerVoiceConfigs: [
+                { speaker: speakers[0], voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } },
+                { speaker: speakers[1] || speakers[0], voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } },
+              ],
+            },
+          }
+        : {
+            ...(languageCode !== "auto" ? { languageCode } : {}),
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } },
+          };
 
-  const response = await ai.models.generateContent({
-    model: tier.model,
-    contents: [{ role: "user", parts: [{ text: promptText }] }],
-    config: { responseModalities: ["AUDIO"], speechConfig },
-  });
+    // TTS models occasionally return no audio part; retry once before failing.
+    let part = null;
+    for (let attempt = 0; attempt < 2 && !part; attempt++) {
+      const response = await ai.models.generateContent({
+        model: tier.model,
+        contents: [{ role: "user", parts: [{ text: promptText }] }],
+        config: { responseModalities: ["AUDIO"], speechConfig },
+      });
+      part = response.candidates?.[0]?.content?.parts?.find((p) =>
+        p.inlineData?.mimeType?.startsWith("audio/")
+      );
+    }
+    if (!part) throw new Error("Gemini TTS returned no audio");
 
-  const part = response.candidates?.[0]?.content?.parts?.find((p) =>
-    p.inlineData?.mimeType?.startsWith("audio/")
-  );
-  if (!part) throw new Error("Gemini TTS returned no audio");
+    const rawPcm = Buffer.from(part.inlineData.data, "base64");
+    const { pcm, speechSec } = cleanPcm(rawPcm);
+    const wav = pcmToWav(pcm, SAMPLE_RATE, 1, 16);
+    const durationSec = pcm.length / 2 / SAMPLE_RATE;
 
-  const pcm = Buffer.from(part.inlineData.data, "base64");
-  const wav = pcmToWav(pcm, 24000, 1, 16);
-  const durationSec = pcm.length / 2 / 24000; // 16-bit mono @ 24kHz
+    const fullText = (segments || []).map((s) => s.text).join(" ");
+    const words = estimateWordTimings(fullText, speechSec);
 
-  const fullText = (segments || []).map((s) => s.text).join(" ");
-  const words = estimateWordTimings(fullText, durationSec);
-
-  return {
-    audioBase64: wav.toString("base64"),
-    mimeType: "audio/wav",
-    durationSec: +durationSec.toFixed(2),
-    words,
-    modelInfo: { tier: tier.id, label: tier.label, remaining: quota.remaining },
-  };
+    return {
+      audioBase64: wav.toString("base64"),
+      mimeType: "audio/wav",
+      durationSec: +durationSec.toFixed(2),
+      words,
+      modelInfo: { tier: tier.id, label: tier.label, remaining: quota.remaining },
+    };
+  } catch (err) {
+    refundTts(uid, tier.id); // failed generations don't cost quota
+    throw err;
+  }
 }

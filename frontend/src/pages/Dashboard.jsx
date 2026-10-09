@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { requestAssist } from "../services/assist.api.js";
 import { useTypewriter } from "../hooks/useTypewriter.js";
 import MermaidDiagram from "../components/MermaidDiagram";
+import HardWord from "../components/HardWord";
 import TranscriptPlayer, { ModulePlayIcon } from "../components/TranscriptPlayer";
 
 import {
@@ -162,6 +163,28 @@ function buildApiUrl(path) {
   return `${getApiBaseUrl()}${cleanPath}`;
 }
 
+// Always render diagrams vertically (top -> bottom), whatever the model returned.
+export function forceTopDown(diagram) {
+  if (!diagram) return diagram;
+
+  const lines = diagram.split(/\r?\n/);
+  const idx = lines.findIndex((l) => /^\s*(?:flowchart|graph)\b/i.test(l));
+  if (idx === -1) return diagram;
+
+  // Anything left on the header line after the keyword/direction (e.g. "flowchart LR A-->B")
+  const rest = lines[idx]
+    .match(/^\s*(?:flowchart|graph)\b[:;\s]*(?:(?:LR|RL|TB|BT|TD)\b[;\s]*)?(.*)$/i)[1]
+    .trim();
+
+  const body = lines
+    .slice(idx + 1)
+    .filter((l) => !/^\s*%%\{.*\}%%\s*$/.test(l))   // init directives (rankDir etc.)
+    .filter((l) => !/^\s*direction\s+\w+\s*;?\s*$/i.test(l))
+    .map((l) => l.replace(/;?\s*direction\s+(?:LR|RL|TB|BT|TD)\s*;?\s*$/i, "")); // inline direction
+
+  return ["flowchart TD", ...(rest ? [rest] : []), ...body].join("\n");
+}
+
 function normalizeMermaidDiagram(rawDiagram) {
   if (!rawDiagram || typeof rawDiagram !== "string") return null;
 
@@ -188,7 +211,7 @@ function normalizeMermaidDiagram(rawDiagram) {
   }
 
   const normalized = lines.slice(diagramStart).join("\n");
-  return normalized || null;
+  return normalized ? forceTopDown(normalized) : null;
 }
 
 function isDiagramDense(diagram) {
@@ -295,6 +318,10 @@ const Dashboard = () => {
   const [quizData, setQuizData] = useState(null); // { question, options: [{id,text}], correctOptionId }
   const [downgradeNotice, setDowngradeNotice] = useState(null);
 
+  // Gemini/model availability UI
+  const [noticeModal, setNoticeModal] = useState(null);
+  const [cooldownTimers, setCooldownTimers] = useState({});
+
   const mediaStreamRef = useRef(null);
   const monitorContextRef = useRef(null);
   const monitorSourceRef = useRef(null);
@@ -321,7 +348,7 @@ const Dashboard = () => {
       ? assistResult.speakerSegments
       : null;
 
-  const hasSteps = assistResult?.flags?.multi_step && assistResult?.steps?.length > 0;
+  const hasSteps = Array.isArray(assistResult?.steps) && assistResult.steps.length > 0;
   const hasVisuals = Boolean(mermaidDiagram);
 
   const {
@@ -433,6 +460,28 @@ const Dashboard = () => {
   };
 }, [isLanguageDropdownOpen]);
 
+  // Keep the visible cooldown countdown moving without repeatedly hitting the API.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCooldownTimers((prev) => {
+        let changed = false;
+        const next = { ...prev };
+
+        Object.keys(next).forEach((tierId) => {
+          const current = Number(next[tierId] || 0);
+          if (current > 0) {
+            next[tierId] = Math.max(0, current - 1);
+            changed = true;
+          }
+        });
+
+        return changed ? next : prev;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
   // Session management effect (1-minute intervals)
   useEffect(() => { 
     let interval; 
@@ -501,27 +550,12 @@ const Dashboard = () => {
         originalKey &&
         !usedHardWordsRef.current.has(lowerPart)
       ) {
-        const wordId = `${originalKey}-${i}`;
-        const isOpen = openHardWord === wordId;
-
         return (
-          <span
+          <HardWord
             key={i}
-            onClick={() => setOpenHardWord(isOpen ? null : wordId)}
-            className="relative z-[9998] group text-[#568FBD] font-semibold underline decoration-dotted decoration-[#568FBD]/50 cursor-help touch-manipulation transition-colors hover:text-[#76A7C9]"
-          >
-            {part}
-
-            <span
-              className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-[#1D2633] text-white text-[12.5px] px-3.5 py-2.5 rounded-xl shadow-[0_12px_24px_-8px_rgba(29,38,51,0.3)] z-[99999] w-max max-w-[220px] text-center leading-snug normal-case font-normal animate-slide-up font-[Atkinson_Hyperlegible,sans-serif] pointer-events-none ${
-                isOpen ? "block" : "hidden group-hover:block"
-              }`}
-            >
-              {hardWordsMap[originalKey]}
-
-              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1D2633]" />
-            </span>
-          </span>
+            word={part}
+            definition={hardWordsMap[originalKey]}
+          />
         );
       }
       return part;
@@ -530,11 +564,24 @@ const Dashboard = () => {
 
   const refreshQuota = async () => {
     if (!profileId) return;
+
     try {
       const res = await fetch(buildApiUrl(`/quota/${profileId}`));
       if (!res.ok) return;
+
       const data = await res.json();
-      setQuotaStats(data.tiers || null);
+      const tiers = Array.isArray(data.tiers) ? data.tiers : [];
+
+      setQuotaStats(tiers);
+      setCooldownTimers((prev) => {
+        const next = { ...prev };
+
+        tiers.forEach((tier) => {
+          next[tier.id] = Number(tier.cooldownSeconds || 0);
+        });
+
+        return next;
+      });
     } catch (err) {
       console.error("Quota fetch failed:", err);
     }
@@ -543,6 +590,111 @@ const Dashboard = () => {
   useEffect(() => {
     refreshQuota();
   }, [profileId]);
+
+  // Re-read server availability whenever the model menu is opened so a global
+  // lock triggered by another user is reflected immediately.
+  useEffect(() => {
+    if (isModelDropdownOpen) {
+      refreshQuota();
+    }
+  }, [isModelDropdownOpen]);
+
+  const readApiResponse = async (response) => {
+    try {
+      return await response.json();
+    } catch {
+      return {
+        error: `Request failed with HTTP ${response.status || "unknown"}.`,
+      };
+    }
+  };
+
+  const showGeminiNotice = (data, requestedTierId = selectedModel) => {
+    const tierId = data?.tierId || requestedTierId;
+    const tierLabel =
+      MODEL_TIERS.find((tier) => tier.id === tierId)?.label || "Cognivo model";
+    const cooldownSeconds = Number(data?.cooldownSeconds || 0);
+
+    if (data?.errorType === "MODEL_BUSY") {
+      if (cooldownSeconds > 0) {
+        setCooldownTimers((prev) => ({
+          ...prev,
+          [tierId]: cooldownSeconds,
+        }));
+      }
+
+      setNoticeModal({
+        type: "info",
+        title: `${tierLabel} is busy right now`,
+        message:
+          data.message ||
+          `${tierLabel} is currently busy. Your Cognivo token has been returned and this model is on a 60-second cooldown. You can use another model now.`,
+      });
+      refreshQuota();
+      return true;
+    }
+
+    if (data?.errorType === "MODEL_COOLDOWN") {
+      if (cooldownSeconds > 0) {
+        setCooldownTimers((prev) => ({
+          ...prev,
+          [tierId]: cooldownSeconds,
+        }));
+      }
+
+      setNoticeModal({
+        type: "info",
+        title: `${tierLabel} is on cooldown`,
+        message:
+          data.message ||
+          `${tierLabel} is temporarily unavailable for ${cooldownSeconds || 60} seconds. Please choose another model or wait for the cooldown to end.`,
+      });
+      return true;
+    }
+
+    if (
+      data?.errorType === "MODEL_LOCKED_TODAY" ||
+      data?.errorType === "PROVIDER_QUOTA_EXHAUSTED"
+    ) {
+      setNoticeModal({
+        type: "warning",
+        title: `${tierLabel} is unavailable today`,
+        message:
+          data.message ||
+          `${tierLabel} is unavailable today. Please use another Cognivo model and try this model again tomorrow.`,
+      });
+      refreshQuota();
+      return true;
+    }
+
+    if (
+      data?.errorType === "MODEL_QUOTA_EXHAUSTED" ||
+      data?.errorType === "QUOTA_EXHAUSTED"
+    ) {
+      setNoticeModal({
+        type: "warning",
+        title: `${tierLabel} daily limit reached`,
+        message:
+          data.message ||
+          `You have reached today's ${tierLabel} limit. This model will be available again tomorrow. Please use another Cognivo model now.`,
+      });
+      refreshQuota();
+      return true;
+    }
+
+    if (data?.errorType === "SERVER_ERROR") {
+      setNoticeModal({
+        type: "error",
+        title: "Cognivo could not complete this request",
+        message:
+          data.error ||
+          "Something went wrong while processing your request. Please try again shortly.",
+      });
+      return true;
+    }
+
+    return false;
+  };
 
   // Requirement 4: File Selection Handler (Max 2 files)
   const handleFileSelect = (e) => {
@@ -567,6 +719,7 @@ const Dashboard = () => {
   const handleContextQuery = async () => {
     if ((!contextQuery.trim() && attachedFiles.length === 0) || !profileId) return;
     if (!chatMode && !assistResult) return;
+    if (loadingContextQuery) return;
 
     const userQueryText = contextQuery.trim();
     const currentFiles = [...attachedFiles];
@@ -597,37 +750,65 @@ const Dashboard = () => {
         };
       }
 
-      const res = await fetch(buildApiUrl("/assist/context"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          profileId,
-          userId: profileId,
-          query: userQueryText || "Analyze the provided attachment and context.",
-          previousResult: chatMode
-          ? { simplified: "Conversational Context", keyPoints: [] }
-          : (assistResult || { simplified: "Conversational Context", keyPoints: [] }),
-          requestedTier: selectedModel,
-          attachedFile: fileData,
-          outputLanguage: centerLanguage
-        }),
-      });
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 45000);
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
+      let res;
+      let data;
+
+      try {
+        res = await fetch(buildApiUrl("/assist/context"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profileId,
+            userId: profileId,
+            query: userQueryText || "Analyze the provided attachment and context.",
+            previousResult: chatMode
+            ? { simplified: "Conversational Context", keyPoints: [] }
+            : (assistResult || { simplified: "Conversational Context", keyPoints: [] }),
+            requestedTier: selectedModel,
+            attachedFile: fileData,
+            outputLanguage: centerLanguage
+          }),
+          signal: controller.signal,
+        });
+
+        console.debug("[Cognivo] /assist/context response", {
+          status: res.status,
+          ok: res.ok,
+          chatMode,
+          selectedModel,
+        });
+
+        data = await readApiResponse(res);
+
+        console.debug("[Cognivo] /assist/context payload", data);
+      } finally {
+        window.clearTimeout(timeoutId);
       }
 
-      const data = await res.json();
+      if (!res.ok) {
+        const handled = showGeminiNotice(data, selectedModel);
+        if (handled) return;
+        throw new Error(data.error || "Cognivo could not complete this request.");
+      }
 
       if (chatMode) {
+
+        const aiText =
+          typeof data?.simplified === "string" && data.simplified.trim()
+            ? data.simplified.trim()
+            : typeof data?.message === "string" && data.message.trim()
+            ? data.message.trim()
+            : "Cognivo received your message but did not return readable text.";
 
         const aiMsg = {
           id: Date.now() + 1,
           sender: "ai",
-          text: data.simplified || "Here is what I found based on your prompt.",
-          keyPoints: data.keyPoints,
-          steps: data.steps,
+          text: aiText,
+          keyPoints: Array.isArray(data?.keyPoints) ? data.keyPoints : [],
+          steps: Array.isArray(data?.steps) ? data.steps : [],
           timestamp: new Date().toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
@@ -635,6 +816,7 @@ const Dashboard = () => {
         };
 
         setChatMessages((prev) => [...prev, aiMsg]);
+        setLoadingContextQuery(false);
       } else {
 
         setAssistResult({
@@ -652,7 +834,18 @@ const Dashboard = () => {
       refreshQuota();
     } catch (err) {
       console.error("Context query failed:", err);
-      alert("AI could not process the request");
+
+      const isTimeout = err?.name === "AbortError";
+
+      setNoticeModal({
+        type: "error",
+        title: isTimeout
+          ? "Cognivo response timed out"
+          : "Cognivo could not complete this request",
+        message: isTimeout
+          ? "The model completed or started processing, but the response took too long to reach the dashboard. Please try again shortly."
+          : "Something went wrong while processing this request. Please try again shortly.",
+      });
     } finally {
       setLoadingContextQuery(false);
     }
@@ -677,9 +870,13 @@ const Dashboard = () => {
         }),
       });
 
-      if (!res.ok) throw new Error(await res.text());
+      const data = await readApiResponse(res);
 
-      const data = await res.json();
+      if (!res.ok) {
+        const handled = showGeminiNotice(data, selectedModel);
+        if (handled) return;
+        throw new Error(data.error || "Cognivo could not complete this request.");
+      }
 
       setAssistResult({
         ...data,
@@ -707,7 +904,11 @@ const Dashboard = () => {
       refreshQuota();
     } catch (err) {
       console.error(err);
-      alert("Failed to process session.");
+      setNoticeModal({
+        type: "error",
+        title: "Cognivo could not complete this request",
+        message: "Something went wrong while processing this request. Please try again shortly.",
+      });
     } finally {
       setLoadingAssist(false);
     }
@@ -742,9 +943,19 @@ const Dashboard = () => {
         }),
       });
 
-      if (!res.ok) throw new Error(await res.text());
+      const data = await readApiResponse(res);
 
-      const data = await res.json();
+      if (!res.ok) {
+        setQuizState({ isOpen: true, status: "error" });
+        setNoticeModal({
+          type: "info",
+          title: data?.errorType === "QUIZ_BUSY" ? "Quiz is busy right now" : "Quiz temporarily unavailable",
+          message:
+            data?.message ||
+            "The comprehension check is temporarily unavailable. Please try again shortly.",
+        });
+        return;
+      }
       setQuizData(data);
       setQuizState({ isOpen: true, status: 'idle' });
     } catch (err) {
@@ -832,14 +1043,24 @@ const Dashboard = () => {
   const isExtensionContext = () => typeof chrome !== "undefined" && Boolean(chrome?.runtime?.id);
 
   const cleanupCapturedAudio = async () => {
+    // 1. Smoothly suspend the audio context to prevent the hardware "pop"
+    try {
+      if (monitorContextRef.current && monitorContextRef.current.state === "running") {
+        await monitorContextRef.current.suspend();
+      }
+    } catch (err) {}
+
+    // 2. Safely disconnect the source
     try {
       if (monitorSourceRef.current) monitorSourceRef.current.disconnect();
     } catch (err) {} finally { monitorSourceRef.current = null; }
 
+    // 3. Close the context
     try {
       if (monitorContextRef.current) await monitorContextRef.current.close();
     } catch (err) {} finally { monitorContextRef.current = null; }
 
+    // 4. Stop the hardware media tracks
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
@@ -987,12 +1208,15 @@ const handleStartListening = async () => {
       wsRef.current = null;
     }
 
+    // Run cleanup first so the audio is suspended before ripping out connections
+    await cleanupCapturedAudio();
+
     if (audioProcessorRef.current) {
-      audioProcessorRef.current.disconnect();
+      try {
+        audioProcessorRef.current.disconnect();
+      } catch(e) {}
       audioProcessorRef.current = null;
     }
-
-    await cleanupCapturedAudio();
   };
 
   useEffect(() => {
@@ -1026,6 +1250,10 @@ const handleStartListening = async () => {
 
   const isCenterLoading = loadingAssist || (loadingContextQuery && !chatMode);
   const selectedTierStats = quotaStats?.find((t) => t.id === selectedModel) || null;
+  const selectedCooldownSeconds = Math.max(
+    0,
+    Number(cooldownTimers[selectedModel] ?? selectedTierStats?.cooldownSeconds ?? 0)
+  );
 
   {/* const triggerNoiseNotice = () => {
     setShowNoiseNotice(true);
@@ -1111,7 +1339,7 @@ const handleStartListening = async () => {
       <div className="flex-1 min-h-0 w-full max-w-[1500px] mx-auto bg-white flex flex-col relative md:rounded-[2rem] md:shadow-[0_24px_48px_-16px_rgba(29,38,51,0.14)] md:border border-[#1D2633]/10 overflow-hidden transition-all">
         
         {/* Header */}
-        <header className="flex items-center justify-between px-5 py-4 sm:px-7 sm:py-5 border-b border-[#1D2633]/5 bg-white relative z-[60] lg:z-20 shrink-0">
+        <header className="flex items-center justify-between px-5 py-4 sm:px-7 sm:py-5 border-b border-[#1D2633]/5 bg-white relative z-[90] shrink-0">
           <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
             <img
               src="/logo.png"
@@ -1163,7 +1391,11 @@ const handleStartListening = async () => {
             <div ref={modelDropdownRef} className="relative">
               <button
                 type="button"
-                onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                onClick={() => {
+                  const nextOpen = !isModelDropdownOpen;
+                  setIsModelDropdownOpen(nextOpen);
+                  if (nextOpen) refreshQuota();
+                }}
                 className="flex items-center gap-1 sm:gap-2 bg-white border border-[#1D2633]/10 rounded-xl px-2 sm:px-3 py-1.5 shadow-xs hover:border-[#76A7C9]/60 transition-all text-left max-w-[167px] sm:max-w-none shrink-0"
               >
                 <span className="text-[10px] sm:text-[13.5px] font-bold text-[#1D2633]">
@@ -1173,7 +1405,11 @@ const handleStartListening = async () => {
                 <div className="flex items-center gap-1 px-1 sm:px-1.5 py-0.5 bg-[#FAFAFA] rounded-md text-[9.5px] sm:text-[11.5px] font-bold text-[#69688D] shrink-0">
                   <Coins size={11} className="text-[#568FBD] sm:w-[13px] sm:h-[13px]" />
                   <span>
-                    {selectedTierStats
+                    {selectedTierStats?.isLockedToday
+                      ? "Off today"
+                      : selectedCooldownSeconds > 0
+                      ? `${selectedCooldownSeconds}s`
+                      : selectedTierStats
                       ? `${selectedTierStats.remaining}/${selectedTierStats.limit}`
                       : "—"}
                   </span>
@@ -1190,13 +1426,26 @@ const handleStartListening = async () => {
                 <div className="absolute top-full right-0 mt-2 w-full lg:w-64 bg-white border border-[#1D2633]/10 rounded-2xl shadow-xl z-[100] p-2 space-y-1 animate-slide-up">
                   {MODEL_TIERS.map((tier) => {
                     const stat = quotaStats?.find((s) => s.id === tier.id);
-                    const isExhausted = stat && stat.remaining === 0;
+                    const cooldown = Math.max(
+                      0,
+                      Number(cooldownTimers[tier.id] ?? stat?.cooldownSeconds ?? 0)
+                    );
+                    const isLocked = Boolean(stat?.isLockedToday);
+                    const isExhausted = Boolean(
+                      stat?.isExhausted ?? stat?.remaining === 0
+                    );
                     const isSelected = selectedModel === tier.id;
+                    const isDisabled = isLocked || cooldown > 0 || isExhausted;
+
+                    let statusText = `${stat?.remaining ?? "—"}/${stat?.limit ?? "—"} tokens`;
+                    if (isLocked) statusText = "Unavailable today";
+                    else if (cooldown > 0) statusText = `Cooldown · ${cooldown}s`;
+                    else if (isExhausted) statusText = "Daily limit reached";
 
                     return (
                       <button
                         key={tier.id}
-                        disabled={isExhausted}
+                        disabled={isDisabled}
                         onClick={() => {
                           setSelectedModel(tier.id);
                           setDowngradeNotice(null);
@@ -1205,18 +1454,22 @@ const handleStartListening = async () => {
                         className={`w-full flex items-center justify-between p-2.5 rounded-xl text-left transition-all ${
                           isSelected
                             ? "bg-[#1D2633] text-white"
-                            : isExhausted
-                            ? "opacity-40 bg-gray-50 cursor-not-allowed text-[#69688D]"
+                            : isDisabled
+                            ? "opacity-50 bg-gray-50 cursor-not-allowed text-[#69688D]"
                             : "hover:bg-[#FAFAFA] text-[#1D2633]"
                         }`}
                       >
-                        <div>
-                          <div className="text-[13px] font-bold">{tier.label}</div>
-                          <div className={`text-[11px] ${isSelected ? "text-white/70" : "text-[#69688D]"}`}>
-                            
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-bold truncate">{tier.label}</div>
+                          <div
+                            className={`text-[11px] mt-0.5 ${
+                              isSelected ? "text-white/70" : "text-[#69688D]"
+                            }`}
+                          >
+                            {statusText}
                           </div>
                         </div>
-                        {isSelected && <Check size={16} className="text-white" />}
+                        {isSelected && <Check size={16} className="text-white shrink-0 ml-3" />}
                       </button>
                     );
                   })}
@@ -1620,7 +1873,7 @@ const handleStartListening = async () => {
                                     <span className="font-bold text-[#1D2633] text-[14px] font-[Space_Grotesk,sans-serif]">
                                       {seg.speaker}
                                     </span>
-                                    {seg.tone && seg.tone !== "neutral" && (
+                                    {seg.tone && (
                                       <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-[0.1em] border ${getToneColor(seg.tone)}`}>
                                         {seg.tone}
                                       </span>
@@ -1634,6 +1887,14 @@ const handleStartListening = async () => {
                                 </div>
                               ))
                             ) : (
+                              <>
+                              {assistResult.overallTone && (
+                                <span
+                                  className={`inline-block mb-2 text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-[0.1em] border ${getToneColor(assistResult.overallTone)}`}
+                                >
+                                  {assistResult.overallTone}
+                                </span>
+                              )}
                               <p className="text-[16px] sm:text-[18px] text-[#1D2633] leading-[1.7] max-w-[42rem]">
                                 <span>
                                   {renderTextWithHighlights(
@@ -1642,6 +1903,7 @@ const handleStartListening = async () => {
                                   )}
                                 </span>
                               </p>
+                            </>
                             )}
                           </div>
                         )}
@@ -2220,6 +2482,65 @@ const handleStartListening = async () => {
           )}
         </button>
       </div>
+
+      {noticeModal && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-[#1D2633]/30 backdrop-blur-[3px] p-4 sm:p-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cognivo-notice-title"
+            className="w-full max-w-md rounded-[1.5rem] border border-[#1D2633]/10 bg-white shadow-[0_28px_80px_-24px_rgba(29,38,51,0.35)] overflow-hidden animate-slide-up"
+          >
+            <div className="p-5 sm:p-6">
+              <div className="flex items-start gap-3.5">
+                <div
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                    noticeModal.type === "warning"
+                      ? "bg-[#FFF8E1] text-[#D97706]"
+                      : noticeModal.type === "error"
+                      ? "bg-[#FDEDED] text-[#D32F2F]"
+                      : "bg-[#EAF3F8] text-[#568FBD]"
+                  }`}
+                >
+                  <AlertTriangle size={20} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3
+                      id="cognivo-notice-title"
+                      className="text-[18px] sm:text-[20px] font-bold text-[#1D2633] font-[Space_Grotesk,sans-serif] leading-tight"
+                    >
+                      {noticeModal.title}
+                    </h3>
+
+                    <button
+                      type="button"
+                      onClick={() => setNoticeModal(null)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-[#69688D] hover:bg-[#F5F6F4] hover:text-[#1D2633] transition-colors shrink-0"
+                      aria-label="Close notification"
+                    >
+                      <X size={17} />
+                    </button>
+                  </div>
+
+                  <p className="mt-2.5 text-[14px] sm:text-[14.5px] text-[#69688D] leading-relaxed whitespace-pre-line">
+                    {noticeModal.message}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setNoticeModal(null)}
+                className="mt-6 w-full py-3 rounded-xl bg-[#1D2633] text-white text-[13.5px] font-bold hover:bg-[#29344a] active:scale-[0.99] transition-all"
+              >
+                Got it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style dangerouslySetInnerHTML={{ __html: `
         .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }

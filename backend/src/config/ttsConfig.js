@@ -1,19 +1,29 @@
 export const TTS_MODELS = {
-  "gemini-2.5-flash-tts": {
-    id: "gemini-2.5-flash-tts",
-    label: "Gemini 2.5 Flash TTS",
-    model: "gemini-2.5-flash-preview-tts",
-    dailyLimit: 3,
+  "cognivo-prime": {
+    id: "cognivo-prime",
+    label: "Cognivo Prime",
+    model: "gemini-3.8-flash-tts",
+    dailyLimit: 1,
+    description: "Most natural",
+    promptStyle: "structured",
   },
-  "gemini-3-flash-tts": {
-    id: "gemini-3-flash-tts",
-    label: "Gemini 3 Flash TTS",
+  "cognivo-flow": {
+    id: "cognivo-flow",
+    label: "Cognivo Flow",
+    model: "gemini-3.8-flash-lite-tts",
+    dailyLimit: 2,
+    description: "Fast & smooth",
+  },
+  "cognivo-voice": {
+    id: "cognivo-voice",
+    label: "Cognivo Voice",
     model: "gemini-3.1-flash-tts-preview",
-    dailyLimit: 3,
+    dailyLimit: 2,
+    description: "Reliable everyday",
   },
 };
 
-export const DEFAULT_TTS_MODEL = "gemini-3-flash-tts";
+export const DEFAULT_TTS_MODEL = "cognivo-prime";
 
 // Gemini TTS has no "emotion" field — style is steered by natural-language
 // instructions in the prompt. This maps the tones your gemini.service.js

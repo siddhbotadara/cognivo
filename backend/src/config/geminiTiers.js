@@ -2,29 +2,29 @@ export const TIERS = [
   {
     id: "ultra",
     label: "Cognivo Ultra",
-    model: "gemini-3.7-flash",
-    dailyLimit: 3,
+    model: "gemini-3.8-flash",
+    dailyLimit: 2,
     description: "Newest, most capable model. Very limited per day.",
   },
   {
     id: "pro",
     label: "Cognivo Pro",
     model: "gemini-3.6-flash",
-    dailyLimit: 4,
+    dailyLimit: 3,
     description: "Strong general-purpose model. A few uses per day.",
   },
   {
     id: "plus",
     label: "Cognivo Plus",
-    model: "gemini-3.5-flash",
-    dailyLimit: 5,
+    model: "gemini-3.5-flash-lite",
+    dailyLimit: 10,
     description: "Solid everyday model, higher daily allowance.",
   },
   {
     id: "lite",
     label: "Cognivo Lite",
-    model: "gemini-3.5-flash-lite",
-    dailyLimit: 100,
+    model: "gemini-3.1-flash-lite",
+    dailyLimit: 10,
     description: "High-volume fallback. Practically never runs out.",
   },
 ];
@@ -39,13 +39,14 @@ export const DEFAULT_TIER = "pro";
 // bucket (see "quiz" in getFeatureKey/FEATURE_KEYS below), so it never
 // touches the ultra/pro/plus/lite counters shown in the frontend.
 export const QUIZ_MODEL = "gemini-3.1-flash-lite";
+export const DIAGRAM_MODEL = "gemini-3.5-flash-lite";
 
 export function getFeatureKey(feature) {
   const envVarByFeature = {
     core: process.env.GEMINI_FINAL_KEY,
-    diagram: process.env.GEMINI_FINAL_KEY,
+    diagram: process.env.GEMINI_QUIZ_DIAGRAM_KEY,
     live: process.env.GEMINI_FINAL_KEY,
-    quiz: process.env.GEMINI_FINAL_KEY,
+    quiz: process.env.GEMINI_QUIZ_DIAGRAM_KEY,
   };
   return envVarByFeature[feature];
 }
@@ -54,9 +55,9 @@ export function getFeatureKey(feature) {
 // applies to this one (eager), so prefer getFeatureKey() in new code.
 export const FEATURE_KEYS = {
   core: process.env.GEMINI_FINAL_KEY,
-  diagram: process.env.GEMINI_FINAL_KEY,
+  diagram: process.env.GEMINI_QUIZ_DIAGRAM_KEY,
   live: process.env.GEMINI_FINAL_KEY,
-  quiz: process.env.GEMINI_FINAL_KEY,
+  quiz: process.env.GEMINI_QUIZ_DIAGRAM_KEY,
 };
 
 export function resolveTier(requestedTierId) {

@@ -9,7 +9,7 @@ const ai = new GoogleGenAI({
 
 export async function processNativeAudio({ base64Audio, mimeType }) {
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "",
     contents: [
       {
         role: "user",

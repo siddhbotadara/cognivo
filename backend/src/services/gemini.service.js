@@ -5,123 +5,235 @@ import { GoogleGenAI } from "@google/genai";
 import { quotaManager } from "../utils/quotaManager.js";
 import { DEFAULT_TIER, QUIZ_MODEL } from "../config/geminiTiers.js";
 
+function getGeminiStatus(error) {
+  return Number(
+    error?.status ??
+      error?.statusCode ??
+      error?.response?.status ??
+      error?.error?.code ??
+      error?.cause?.status ??
+      0
+  );
+}
+
+function getGeminiErrorText(error) {
+  return String(
+    error?.message ??
+      error?.status ??
+      error?.error?.message ??
+      error?.error?.status ??
+      ""
+  ).toLowerCase();
+}
+
+function isGeminiBusyError(error) {
+  const status = getGeminiStatus(error);
+  const message = getGeminiErrorText(error);
+
+  return (
+    status === 502 ||
+    status === 503 ||
+    message.includes("unavailable") ||
+    message.includes("service unavailable") ||
+    message.includes("overloaded") ||
+    message.includes("high demand")
+  );
+}
+
+function isGeminiQuotaExhaustedError(error) {
+  const status = getGeminiStatus(error);
+  const message = getGeminiErrorText(error);
+
+  if (message.includes("resource_exhausted")) return true;
+  if (message.includes("quota exceeded")) return true;
+  if (message.includes("daily quota")) return true;
+  if (message.includes("daily limit")) return true;
+  if (message.includes("per day")) return true;
+  if (message.includes("rate limit exceeded")) return true;
+  if (message.includes("quota") && status === 429) return true;
+
+  return false;
+}
+
+function buildProviderError({ code, message, tierId, cooldownSeconds, reservationId }) {
+  const error = new Error(message);
+  error.code = code;
+  error.tierId = tierId;
+  error.cooldownSeconds = cooldownSeconds;
+  error.reservationId = reservationId;
+  return error;
+}
+
+async function withRetry(fn, { retries = 1, baseDelayMs = 1500 } = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!isGeminiBusyError(err) || attempt >= retries) throw err;
+      await new Promise((r) => setTimeout(r, baseDelayMs * 2 ** attempt));
+    }
+  }
+}
+
+const TONES = ["serious", "neutral", "joking", "sarcastic", "angry", "confused", "stressed"];
+
+async function detectToneFallback({ ai, text }) {
+  const prompt = `
+Classify the speaker's emotional tone in this microphone transcript.
+Choose exactly ONE: serious, neutral, joking, sarcastic, angry, confused, stressed.
+Be decisive: use "neutral" only if there is truly no emotional signal.
+Judge intent from wording and context, not the topic.
+Return ONLY JSON: { "tone": "" }
+
+TRANSCRIPT:
+${text}
+`;
+  try {
+    const res = await ai.models.generateContent({
+      model: QUIZ_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: "low" },
+      },
+    });
+    const m = (res.text || "").match(/\{[\s\S]*\}/);
+    const tone = m ? String(JSON.parse(m[0]).tone || "").toLowerCase().trim() : "";
+    return TONES.includes(tone) ? tone : null;
+  } catch (err) {
+    console.error("Tone fallback failed (ignored):", err?.message);
+    return null;
+  }
+}
+
 export async function processWithGemini({ text, userProfile, userId, requestedTier = DEFAULT_TIER, outputLanguage = "English" }) {
-  const { approvedTier, label, model, remaining, downgraded, apiKey, exhausted } =
+  const { approvedTier, label, model, remaining, downgraded, apiKey, exhausted, reservationId } =
     quotaManager.selectModel(userId, "core", requestedTier);
   const ai = new GoogleGenAI({ apiKey });
   const { onboarding } = userProfile || {};
 
   const prompt = `
 You are an accessibility AI for users with Auditory Processing Disorder (APD).
-
-────────────────────────────────
-CRITICAL RULE — OUTPUT LANGUAGE
-────────────────────────────────
-You MUST translate and generate ALL your response fields in the following language: ${outputLanguage}.
-The JSON structure MUST remain in English keys, but the values MUST be in ${outputLanguage}.
-────────────────────────────────
-
+You receive a raw speech-to-text transcript captured from a microphone.
 Your primary responsibility is to preserve meaning while improving clarity.
 You MUST prioritize grammatical correctness over brevity.
 
 ────────────────────────────────
-CRITICAL RULE — SIMPLIFIED SENTENCE
+RULE 1 — OUTPUT LANGUAGE
 ────────────────────────────────
-You MUST generate the simplified sentence AFTER you decide key points and steps.
+Generate ALL response values in: ${outputLanguage}.
+JSON keys MUST stay in English; the values MUST be in ${outputLanguage}.
 
-The simplified sentence MUST:
-- Be ONE complete sentence
-- Contain a clear subject and verb
-- Be grammatically correct spoken English
-- Be at least 12 words
-- Preserve scientific meaning
-- Sound like a calm teacher explaining
+────────────────────────────────
+RULE 2 — FIX MIC / TRANSCRIPTION ERRORS FIRST (silently)
+────────────────────────────────
+The transcript came from a microphone and speech recognition, so it may contain
+misheard words, homophones, broken or split words, misspellings, garbled
+technical terms or names.
 
-ABSOLUTELY FORBIDDEN:
-- Keyword fragments
-- Telegraphic speech
-- Missing verbs
-- Removed connectors (the, is, are, to, using)
+Before doing anything else, mentally correct the transcript:
+- Fix ONLY errors that are clear from the surrounding context.
+  Example: "photo sent thesis" -> "photosynthesis", "pre heat the oven" -> "preheat the oven".
+- If the transcript is already correct, change NOTHING.
+- NEVER add new information, NEVER change the speaker's meaning, NEVER rewrite style.
+- If a word is unclear and context does not make the fix obvious, keep it as is.
+- Use the CORRECTED wording in every output field (simplified, keyPoints, steps,
+  hardWords, speakerSegments). Never copy a misheard word into the output.
+- Record each fix in "corrections" as { "heard": "", "corrected": "" }.
+  If you made no fixes, "corrections" MUST be [].
 
-If unsure, REPHRASE instead of shortening.
+────────────────────────────────
+RULE 3 — ORDER OF WORK
+────────────────────────────────
+1. Correct the transcript (Rule 2).
+2. Decide the steps (Rule 5).
+3. Write the key points (Rule 4).
+4. Write the simplified summary LAST (Rule 6), so it matches the rest.
+
+────────────────────────────────
+RULE 4 — KEY POINTS
+────────────────────────────────
+- Write 3–5 clear sentences.
+- Each point must be a full sentence, never a fragment.
+
+────────────────────────────────
+RULE 5 — STEPS
+────────────────────────────────
+Steps are for audio where the speaker tells the listener how to DO something in
+a sequence. This includes: instructions, directions, recipes, procedures,
+set-up or installation guides, lab / assignment / exam instructions, how-to
+explanations, and anything using ordering words such as "first", "then",
+"next", "after that", "finally", "step one".
+
+If the audio contains such a sequence you MUST fill "steps":
+- 2–10 steps, in the order spoken.
+- ONE action per step, written as a short complete sentence starting with a verb.
+- Include the steps even if the speaker also explains why, or the tone is casual.
+- If the audio is mixed, include only the actionable part as steps.
+
+Use "steps": [] ONLY when the audio is purely:
+- an explanation of how nature or a system works (photosynthesis, digestion, how engines work),
+- opinions, news, stories, status updates, or casual conversation.
+
+Examples:
+Audio: "First preheat the oven to 180, then mix the flour and eggs, and bake for twenty minutes."
+-> steps: ["Preheat the oven to 180°C.", "Mix the flour and the eggs.", "Bake it for twenty minutes."]
+Audio: "Plants take in sunlight and turn water and air into food."
+-> steps: []
+
+When unsure whether it is a to-do sequence: if there is an ordered list of
+actions the listener could perform, INCLUDE the steps.
+
+────────────────────────────────
+RULE 6 — SIMPLIFIED SUMMARY
+────────────────────────────────
+The "simplified" field is a single, punchy summary of the whole transcript.
+- ONE or TWO complete, grammatically correct sentences.
+- 12 to 30 words total.
+- Clear subject and verb; keep connectors (the, is, are, to, using).
+- Calm teacher tone. Preserve the real meaning.
+- Tell the user the gist of what was said, so they understand in seconds.
+
+ABSOLUTELY FORBIDDEN in "simplified":
+- Keyword fragments or telegraphic speech
+- Copying the transcript
+- More than two sentences
 
 BAD: "Plants water air make oxygen"
 GOOD: "Plants use sunlight to turn water and air into food and oxygen."
 
 ────────────────────────────────
-CRITICAL RULE — SIMPLIFIED SENTENCE
-────────────────────────────────
-The "simplified" field MUST be a single, punchy summary of the entire transcript.
-- MAX 30 words.
-- ONE paragraph only.
-- Explain the "gist" of the conversation so a user knows exactly what happened in seconds.
-
-ABSOLUTELY FORBIDDEN:
-- Providing a full transcript in the "simplified" field.
-- Going over two sentences.
-
-────────────────────────────────
-KEY POINTS
-────────────────────────────────
-- Write 3–5 clear sentences
-- Each point must be a full sentence
-- Do not oversimplify into fragments
-
-────────────────────────────────
-STEPS (VERY STRICT)
-────────────────────────────────
-ONLY create steps if a human must FOLLOW actions in order.
-
-DO NOT create steps for:
-- Scientific explanations
-- Natural processes
-- How something works
-
-Photosynthesis, respiration, digestion = NOT steps.
-
-If no valid steps:
-- steps must be []
-- flags.multi_step = false
-
-────────────────────────────────
-HARD WORD DETECTION
+RULE 7 — HARD WORDS
 ────────────────────────────────
 Detect technical or cognitively demanding words.
-
-Rules:
-- Lowercase keys
-- Max 12 words explanation
-- Explain the word, not the sentence
-- Skip obvious words
+- Keys: lowercase, and spelled EXACTLY as the word appears in your output text
+  (after correction). Single words preferred, no punctuation.
+- Value: max 12 words, explain the WORD, not the sentence.
+- Skip obvious words.
 
 ────────────────────────────────
-FLAGS
+RULE 8 — FLAGS
 ────────────────────────────────
 - complex_concept → abstract or scientific
-- needs_visual → diagrams help
-- multi_step → ONLY if steps exist
+- needs_visual → a diagram would help
+- multi_step → true exactly when "steps" is not empty, otherwise false
 
 ────────────────────
-VOCAL TONE DETECTION
+TONE DETECTION
 ────────────────────
-Analyze the speaker's tone based on wording and context.
+Detect the speaker's emotional tone from wording, phrasing and context.
+Allowed values: serious, neutral, joking, sarcastic, angry, confused, stressed
 
-Detect ONE of the following per speaker segment:
-- serious
-- neutral
-- joking
-- sarcastic
-- angry
-- confused
-- stressed
-
-Rules:
-- Do NOT guess wildly
-- If unsure, use "neutral"
-- Tone must match spoken intent, not topic
-- Sarcasm ONLY if clearly implied by wording
-
-Return tone per speaker segment.
+- ALWAYS return "overallTone": the dominant tone of the whole audio.
+  Required even when there is only one speaker.
+- Also return "tone" for each speaker segment.
+- Be decisive. Pick the best-fitting tone when there are real signals:
+  urgency or worry (stressed), frustration or hostility (angry),
+  hesitation or questions (confused), humor (joking), a grave or formal
+  subject (serious).
+- Use "neutral" only when there is genuinely no emotional signal
+  (plain factual or instructional speech).
+- Judge the speaker's intent, not the topic. Sarcasm only if clearly implied.
 
 ────────────────────────────────
 USER PROFILE (DO NOT IGNORE)
@@ -161,24 +273,15 @@ Noise examples:
 - Mic disturbances
 - Filler speech without meaning
 
-────────────────────
-JSON ADDITION
-────────────────────
-
-Add these optional fields:
-
-"speakerSegments": [
-  { "speaker": "", "text": "" }
-],
-"noiseDetected": false
-
 ────────────────────────────────
-RETURN ONLY VALID JSON
+RETURN ONLY VALID JSON (keys in this order)
 ────────────────────────────────
 {
-  "simplified": "",
-  "keyPoints": [],
+  "corrections": [],
   "steps": [],
+  "keyPoints": [],
+  "simplified": "",
+  "overallTone": "neutral",
   "hardWords": {},
   "speakerSegments": [
     {
@@ -196,23 +299,61 @@ RETURN ONLY VALID JSON
 }
 
 FINAL CHECK BEFORE RESPONDING:
-If the simplified sentence sounds broken when read aloud,
-REWRITE IT before returning JSON.
+- Did you fix clear mic errors and use the corrected words everywhere?
+- If the audio has an ordered sequence of actions, are "steps" filled?
+- If "simplified" sounds broken when read aloud, REWRITE it.
 `;
 
-  async function callGeminiWithRetry(payload, retries = 2) {
+  async function callGemini(payload) {
     try {
-      return await ai.models.generateContent(payload);
+      const response = await withRetry(() => ai.models.generateContent(payload));
+      // A successful provider response resets only the consecutive busy counter.
+      quotaManager.recordSuccess(approvedTier);
+      return response;
     } catch (err) {
-      if (retries > 0 && err?.message?.includes("503")) {
-        await new Promise(r => setTimeout(r, 1200));
-        return callGeminiWithRetry(payload, retries - 1);
+      console.error("Gemini raw error:", getGeminiStatus(err), err?.message);
+      if (isGeminiBusyError(err)) {
+        const failure = quotaManager.recordFailure(
+          userId,
+          approvedTier,
+          "core",
+          reservationId,
+          60
+        );
+
+        throw buildProviderError({
+          code: failure.lockedToday ? "MODEL_LOCKED_TODAY" : "MODEL_BUSY",
+          message: failure.lockedToday
+            ? `${label} is unavailable today because it has returned repeated service-unavailable errors.`
+            : `${label} is currently busy on Gemini servers. Your Cognivo token has been returned and a 60-second cooldown has been applied.`,
+          tierId: approvedTier,
+          cooldownSeconds: failure.lockedToday ? 0 : 60,
+          reservationId,
+        });
       }
+
+      if (isGeminiQuotaExhaustedError(err)) {
+        quotaManager.recordProviderQuotaExhausted(
+          userId,
+          approvedTier,
+          "core",
+          reservationId
+        );
+
+        throw buildProviderError({
+          code: "PROVIDER_QUOTA_EXHAUSTED",
+          message: `${label} is unavailable today because its Gemini API allowance has been exhausted.`,
+          tierId: approvedTier,
+          cooldownSeconds: 0,
+          reservationId,
+        });
+      }
+
       throw err;
     }
   }
 
-  const response = await callGeminiWithRetry({
+  const response = await callGemini({
     model,
     contents: [
       {
@@ -221,6 +362,7 @@ REWRITE IT before returning JSON.
       }
     ],
     config: {
+      responseMimeType: "application/json",
       thinkingConfig: { thinkingLevel: "low" }
     }
   });
@@ -244,6 +386,26 @@ REWRITE IT before returning JSON.
     "confused",
     "stressed"
   ];
+
+  // Overall tone is independent of speaker detection (speaker segments get
+  // dropped when there's only one speaker, which used to erase the tone too).
+  const segmentTones = Array.isArray(result.speakerSegments)
+    ? result.speakerSegments
+        .map((s) => s?.tone)
+        .filter((t) => ALLOWED_TONES.includes(t) && t !== "neutral")
+    : [];
+
+  result.overallTone = ALLOWED_TONES.includes(result.overallTone)
+    ? result.overallTone
+    : segmentTones[0] || "neutral";
+
+  // Second opinion: cautious models (Ultra/Pro) tend to answer "neutral".
+  // A cheap model re-checks only in that case. It uses no user quota.
+  if (result.overallTone === "neutral") {
+    const second = await detectToneFallback({ ai, text });
+    if (second) result.overallTone = second;
+  }
+  console.log(`🎭 [${approvedTier}] overallTone:`, result.overallTone);
 
   // 🧠 SPEAKER SANITY CHECK (CRITICAL)
   // 🧠 Balanced Speaker Normalization (Middle Ground)
@@ -333,10 +495,32 @@ REWRITE IT before returning JSON.
   // Normalize noiseDetected
   result.noiseDetected = Boolean(result.noiseDetected);
 
-  // Enforce steps rule
-  if (!result.flags?.multi_step) {
-    result.steps = [];
-  }
+  // Steps: trust the actual steps, not the model's flag.
+  // (Previously steps were wiped whenever flags.multi_step wasn't true.)
+  result.steps = result.steps
+    .map((s) =>
+      typeof s === "string"
+        ? s
+        : s?.text || s?.step || s?.description || s?.action || ""
+    )
+    .map((s) => String(s).trim())
+    .filter(Boolean)
+    .slice(0, 10);
+
+  // Corrections list (mic fixes) - sanitize
+  result.corrections = Array.isArray(result.corrections)
+    ? result.corrections
+        .filter((c) => c && typeof c.heard === "string" && typeof c.corrected === "string")
+        .filter((c) => c.heard.trim().toLowerCase() !== c.corrected.trim().toLowerCase())
+        .slice(0, 10)
+    : [];
+
+  // Flags always consistent with the data
+  result.flags = {
+    complex_concept: Boolean(result.flags?.complex_concept),
+    needs_visual: Boolean(result.flags?.needs_visual),
+    multi_step: result.steps.length > 0,
+  };
 
   // Simplified sentence validation
   if (typeof result.simplified === "string") {
@@ -349,13 +533,14 @@ REWRITE IT before returning JSON.
   }
 
   if (outputLanguage === "English" || outputLanguage === "en") {
-    const simplifiedWords = result.simplified.split(" ").length;
-    const hasVerb = /\b(is|are|was|were|use|uses|make|makes|turn|turns|take|takes|produce|produces|convert|converts)\b/i.test(result.simplified);
+    const simplifiedWords = result.simplified.split(/\s+/).filter(Boolean).length;
 
-    if (simplifiedWords < 10 || !hasVerb) {
+    // Only fall back when the summary is genuinely too short to be a sentence.
+    // (The old verb whitelist rejected valid sentences like "explains"/"shows".)
+    if (simplifiedWords < 6) {
       result.simplified = result.keyPoints.length > 0
         ? result.keyPoints[0]
-        : "This topic explains an important scientific process in a simple and clear way.";
+        : "This topic explains an important idea in a simple and clear way.";
     }
   }
 
@@ -363,6 +548,7 @@ REWRITE IT before returning JSON.
     simplified: result.simplified,
     keyPoints: result.keyPoints.length,
     steps: result.steps.length,
+    corrections: result.corrections.length,
     hardWords: Object.keys(result.hardWords).length,
     tier: approvedTier,
     downgraded
@@ -382,7 +568,7 @@ export async function processContextQuery({
   useSearch = false,
   outputLanguage = "English"
 }) {
-  const { approvedTier, label, model, remaining, downgraded, apiKey, exhausted } =
+  const { approvedTier, label, model, remaining, downgraded, apiKey, exhausted, reservationId } =
     quotaManager.selectModel(userId, "core", requestedTier);
   const ai = new GoogleGenAI({ apiKey });
 
@@ -432,25 +618,73 @@ Return JSON:
     });
   }
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: [
-      {
-        role: "user",
-        parts,
-      },
-    ],
-    ...(useSearch ? { config: { tools: [{ googleSearch: {} }] } } : {}),
-  });
-  console.log(`📡 Gemini call complete (context) — tier=${approvedTier} model=${model} downgraded=${downgraded}`);
+  try {
+    const response = await withRetry(() =>
+      ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: "user",
+            parts,
+          },
+        ],
+        config: {
+          ...(useSearch ? { tools: [{ googleSearch: {} }] } : {}),
+        },
+      })
+    );
 
-  const raw = response.text;
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("Invalid Gemini context response");
+    quotaManager.recordSuccess(approvedTier);
+    console.log(`📡 Gemini call complete (context) — tier=${approvedTier} model=${model} downgraded=${downgraded}`);
 
-  const result = JSON.parse(match[0]);
-  result.modelInfo = { tier: approvedTier, label, remaining, downgraded, exhausted: Boolean(exhausted) };
-  return result;
+    const raw = response.text;
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("Invalid Gemini context response");
+
+    const result = JSON.parse(match[0]);
+    result.modelInfo = { tier: approvedTier, label, remaining, downgraded, exhausted: Boolean(exhausted) };
+    return result;
+  } catch (err) {
+    console.error("Gemini raw error:", getGeminiStatus(err), err?.message);
+    if (isGeminiBusyError(err)) {
+      const failure = quotaManager.recordFailure(
+        userId,
+        approvedTier,
+        "core",
+        reservationId,
+        60
+      );
+
+      throw buildProviderError({
+        code: failure.lockedToday ? "MODEL_LOCKED_TODAY" : "MODEL_BUSY",
+        message: failure.lockedToday
+          ? `${label} is unavailable today because it has returned repeated service-unavailable errors.`
+          : `${label} is currently busy on Gemini servers. Your Cognivo token has been returned and a 60-second cooldown has been applied.`,
+        tierId: approvedTier,
+        cooldownSeconds: failure.lockedToday ? 0 : 60,
+        reservationId,
+      });
+    }
+
+    if (isGeminiQuotaExhaustedError(err)) {
+      quotaManager.recordProviderQuotaExhausted(
+        userId,
+        approvedTier,
+        "core",
+        reservationId
+      );
+
+      throw buildProviderError({
+        code: "PROVIDER_QUOTA_EXHAUSTED",
+        message: `${label} is unavailable today because its Gemini API allowance has been exhausted.`,
+        tierId: approvedTier,
+        cooldownSeconds: 0,
+        reservationId,
+      });
+    }
+
+    throw err;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -477,7 +711,7 @@ export async function generateQuiz({ simplified, keyPoints = [], userId, outputL
   // ultra/pro/plus/lite quota the frontend displays for the 4 main tiers.
   // The "lite" tier id passed here just borrows that tier's dailyLimit
   // config for quiz's own counter; it has no bearing on which model runs.
-  const { apiKey } = quotaManager.selectModel(userId, "quiz", "lite");
+  const { apiKey, approvedTier, reservationId } = quotaManager.selectModel(userId, "quiz", "lite");
   const ai = new GoogleGenAI({ apiKey });
 
   const sourceText = [simplified, ...(Array.isArray(keyPoints) ? keyPoints : [])]
@@ -522,11 +756,30 @@ Return ONLY this JSON, no markdown fences, no commentary:
 }
 `;
 
-  const response = await ai.models.generateContent({
-    model: QUIZ_MODEL,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { thinkingConfig: { thinkingLevel: "low" } },
-  });
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: QUIZ_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { thinkingConfig: { thinkingLevel: "low" } },
+    });
+  } catch (err) {
+    if (isGeminiBusyError(err)) {
+      quotaManager.refund(userId, "quiz", approvedTier, reservationId);
+      const quizError = new Error("The comprehension quiz is temporarily busy. Please try again shortly.");
+      quizError.code = "QUIZ_BUSY";
+      throw quizError;
+    }
+
+    if (isGeminiQuotaExhaustedError(err)) {
+      quotaManager.refund(userId, "quiz", approvedTier, reservationId);
+      const quizError = new Error("The comprehension quiz is temporarily unavailable today. Please try again tomorrow.");
+      quizError.code = "QUIZ_UNAVAILABLE_TODAY";
+      throw quizError;
+    }
+
+    throw err;
+  }
 
   const raw = response.text;
   const match = raw.match(/\{[\s\S]*\}/);
