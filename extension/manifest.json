@@ -4,7 +4,7 @@
   "short_name": "Cognivo",
   "version": "2.1.0",
   "description": "AI-powered learning assistance that turns live speech into clearer, more understandable information.",
-  "homepage_url": "https://your-cognivo-website.com",
+  "homepage_url": "https://cognivoflow.vercel.app/",
   "icons": {
     "16": "app/rounded.png",
     "32": "app/rounded.png",
